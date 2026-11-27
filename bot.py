@@ -9,8 +9,8 @@ import threading
 # ==========================================================
 # यहाँ अपना BotFather वाला टोकन और अपनी Telegram ID डालें
 # ==========================================================
-BOT_TOKEN = "YAHAN_APNA_TOKEN_DALEIN"
-ADMIN_ID = 123456789  # यहाँ 123456789 हटाकर अपनी असली Telegram ID लिखें
+BOT_TOKEN = "9115969168:AAEjNaf0rb74vuDr_pAFQtpo28iNgnd_fNU"
+ADMIN_ID = 8783427206
 # ==========================================================
 
 bot = telebot.TeleBot(BOT_TOKEN)
