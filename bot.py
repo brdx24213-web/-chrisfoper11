@@ -1,16 +1,27 @@
 import telebot
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
+from flask import Flask
 import json
 import os
 import time
 import threading
 
-# यहाँ अपना BotFather वाला टोकन और अपनी Telegram User ID (Admin) डालें
+# 1. यहाँ अपना BotFather वाला टोकन और अपनी Telegram Numeric ID डालें
 BOT_TOKEN = "9115969168:AAE32p5Vj9-kZSRI7ck9ReIJ1EJccgQs9SM"
-ADMIN_IDS = 8783427206  # अपनी Telegram Numeric ID यहाँ लिखें
+ADMIN_IDS = [123456789]  # अपनी Telegram Numeric ID इस ब्रैकेट [ ] के अंदर लिखें
 
 bot = telebot.TeleBot(BOT_TOKEN)
+app = Flask(__name__)
 DATA_FILE = "bot_data.json"
+
+# Render के पोर्ट को चालू रखने के लिए वेब सर्वर
+@app.route('/')
+def home():
+    return "Bot is alive and running!"
+
+def run_web():
+    port = int(os.environ.get("PORT", 8080))
+    app.run(host="0.0.0.0", port=port)
 
 # डेटा लोड और सेव करने के लिए
 def load_data():
@@ -28,7 +39,6 @@ db = load_data()
 def is_admin(user_id):
     return user_id in ADMIN_IDS
 
-# फालतू कमांड मैसेज को तुरंत डिलीट करने के लिए
 def delete_msg_safe(chat_id, message_id, delay=0):
     def _del():
         if delay > 0:
@@ -39,7 +49,6 @@ def delete_msg_safe(chat_id, message_id, delay=0):
             pass
     threading.Thread(target=_del).start()
 
-# पर्सनल (DM) और ग्रुप में बैलेंस अपडेट भेजने का फंक्शन
 def send_balance_update(user_id, name, change_text, new_bal, group_id=None):
     msg = (
         f"💰 <b>Balance Update</b>\n"
@@ -47,12 +56,10 @@ def send_balance_update(user_id, name, change_text, new_bal, group_id=None):
         f"📊 Update: {change_text}\n"
         f"💳 Current Balance: <b>{new_bal}</b>"
     )
-    # पर्सनल में भेजें
     try:
         bot.send_message(user_id, msg, parse_mode="HTML")
     except Exception:
         pass
-    # ग्रुप में भी अपडेट दें (और 10 सेकंड बाद डिलीट करें ताकि चैट साफ रहे)
     if group_id:
         try:
             sent = bot.send_message(group_id, msg, parse_mode="HTML")
@@ -60,7 +67,6 @@ def send_balance_update(user_id, name, change_text, new_bal, group_id=None):
         except Exception:
             pass
 
-# पिन की गई लिस्ट को अपडेट करने का फंक्शन
 def update_pinned_list(chat_id):
     text = "📋 <b>ACTIVE PLAYERS & BALANCE LIST</b> 📋\n\n"
     if not db["users"]:
@@ -81,17 +87,15 @@ def update_pinned_list(chat_id):
     except Exception:
         pass
 
-# /start कमांड (ताकि यूजर पर्सनल में अपना बैलेंस देख सके और बॉट से जुड़ सके)
 @bot.message_handler(commands=['start', 'balance', 'bal'])
 def start_cmd(message):
     uid = str(message.from_user.id)
     name = message.from_user.first_name
     if uid not in db["users"]:
         db["users"][uid] = {"name": name, "balance": 0}
-        save_data(db)
     else:
         db["users"][uid]["name"] = name
-        save_data(db)
+    save_data(db)
     
     bal = db["users"][uid]["balance"]
     bot.send_message(
@@ -102,7 +106,6 @@ def start_cmd(message):
     if message.chat.type != "private":
         delete_msg_safe(message.chat.id, message.message_id, delay=2)
 
-# /add कमांड (यूजर के मैसेज पर रिप्लाई करके या ID देकर)
 @bot.message_handler(commands=['add'])
 def add_balance(message):
     delete_msg_safe(message.chat.id, message.message_id)
@@ -139,7 +142,6 @@ def add_balance(message):
     if message.chat.type != "private":
         update_pinned_list(message.chat.id)
 
-# /minus कमांड
 @bot.message_handler(commands=['minus'])
 def minus_balance(message):
     delete_msg_safe(message.chat.id, message.message_id)
@@ -175,22 +177,18 @@ def minus_balance(message):
     if message.chat.type != "private":
         update_pinned_list(message.chat.id)
 
-# /list और /pin कमांड
 @bot.message_handler(commands=['list', 'pin'])
 def list_and_pin(message):
     delete_msg_safe(message.chat.id, message.message_id)
     if not is_admin(message.from_user.id):
         return
     if message.chat.type != "private":
-        db["pinned_msg_id"] = None # नया पिन बनाने के लिए रीसेट
+        db["pinned_msg_id"] = None
         update_pinned_list(message.chat.id)
 
-# टेबल लगाने का कमांड: /table <Amount> (Player 1 के मैसेज पर रिप्लाई करके, या नाम लिखकर)
-# तरीका 1: किसी यूजर के मैसेज पर रिप्लाई करें: /table 100 @Anil
-# तरीका 2: /table 100 Queen Anil
 @bot.message_handler(commands=['table', 't'])
 def create_table(message):
-    delete_msg_safe(message.chat.id, message.message_id) # कमांड मैसेज डिलीट होगा, टेबल नहीं
+    delete_msg_safe(message.chat.id, message.message_id)
     if not is_admin(message.from_user.id):
         return
 
@@ -208,12 +206,10 @@ def create_table(message):
     p1_id, p1_name = None, "Player 1"
     p2_id, p2_name = None, "Player 2"
 
-    # यदि एडमिन ने किसी प्लेयर के मैसेज पर रिप्लाई करके टेबल लगाई है
     if message.reply_to_message:
         p1_id = str(message.reply_to_message.from_user.id)
         p1_name = message.reply_to_message.from_user.first_name
         p2_name = " ".join(args[2:]) if len(args) > 2 else "Opponent"
-        # नाम से दूसरे प्लेयर की ID खोजें
         for uid, info in db["users"].items():
             if info["name"].lower() in p2_name.lower().replace("@", ""):
                 p2_id = uid
@@ -230,7 +226,6 @@ def create_table(message):
     else:
         return
 
-    # दोनों प्लेयर्स के बैलेंस से दांव की राशि काटें (Hold)
     if p1_id and p1_id in db["users"]:
         db["users"][p1_id]["balance"] = round(db["users"][p1_id]["balance"] - amount, 2)
     if p2_id and p2_id in db["users"]:
@@ -250,7 +245,6 @@ def create_table(message):
     }
     save_data(db)
 
-    # आपके द्वारा दिया गया सटीक डिज़ाइन
     table_text = (
         f"🎲 𝑻𝒂𝒃𝒍𝒆 𝑵𝒐. {t_no}\n\n"
         f"(1). {p1_name}\n\n"
@@ -271,7 +265,6 @@ def create_table(message):
     if message.chat.type != "private":
         update_pinned_list(message.chat.id)
 
-# बटन क्लिक हैंडल करना (#win और cancel)
 @bot.callback_query_handler(func=lambda call: True)
 def handle_table_buttons(call):
     if not is_admin(call.from_user.id):
@@ -289,5 +282,20 @@ def handle_table_buttons(call):
     p1_id, p1_name = table["p1_id"], table["p1_name"]
     p2_id, p2_name = table["p2_id"], table["p2_name"]
 
-    # 10% कमीशन गणना: 100 पर 90 प्रॉफिट -> कुल वापसी 100 + 90 = 190
     profit = round(amount * 0.90, 2)
+    total_win_payout = round(amount + profit, 2)
+    if total_win_payout.is_integer():
+        total_win_payout = int(total_win_payout)
+
+    if action in ["win1", "win2"]:
+        winner_id = p1_id if action == "win1" else p2_id
+        winner_name = p1_name if action == "win1" else p2_name
+
+        if winner_id and winner_id in db["users"]:
+            db["users"][winner_id]["balance"] = round(db["users"][winner_id]["balance"] + total_win_payout, 2)
+            new_bal = db["users"][winner_id]["balance"]
+            send_balance_update(
+                winner_id, winner_name,
+                f"🏆 Table #{table_id} Won! (+{total_win_payout} [10% Comm.])",
+                new_bal, call.message.chat.id
+            )
