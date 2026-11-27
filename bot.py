@@ -19,7 +19,7 @@ DATA_FILE = "bot_data.json"
 
 @app.route('/')
 def home():
-    return "Bot is alive and running!"
+    return "Bot is running!"
 
 def run_web():
     port = int(os.environ.get("PORT", 10000))
@@ -41,7 +41,7 @@ def save_data(data):
 db = load_data()
 
 def is_admin(user_id):
-    return int(user_id) == int(ADMIN_ID)
+    return str(user_id) == str(ADMIN_ID)
 
 def delete_msg_safe(chat_id, message_id, delay=0):
     def _del():
@@ -275,7 +275,9 @@ def handle_table_buttons(call):
         bot.answer_callback_query(call.id, "❌ केवल Admin ही परिणाम घोषित कर सकते हैं!", show_alert=True)
         return
 
-    action, table_id = call.data.split("_")
+    parts = call.data.split("_")
+    action = parts[0]
+    table_id = parts[1]
     table = db["tables"].get(table_id)
 
     if not table or table["status"] != "active":
@@ -297,4 +299,4 @@ def handle_table_buttons(call):
 
         if winner_id and winner_id in db["users"]:
             db["users"][winner_id]["balance"] = round(db["users"][winner_id]["balance"] + total_win_payout, 2)
-            new_bal = db["users"][winner_id
+            new_bal = db["users"][winner_id]["balance"]
