@@ -10,6 +10,9 @@ import re
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 ADMIN_ID = 8783427206
 
+if not BOT_TOKEN:
+    print("ERROR: BOT_TOKEN environment variable is missing!")
+
 bot = telebot.TeleBot(BOT_TOKEN)
 app = Flask(__name__)
 DATA_FILE = "bot_data.json"
@@ -110,7 +113,7 @@ def update_pinned_list(chat_id):
 
     sorted_users = sorted(
         db["users"].items(),
-        key=lambda x: x[1].get("balance", 0),
+        key=lambda x: x.get("balance", 0),
         reverse=True
     )
 
@@ -349,6 +352,3 @@ def handle_table_buttons(call):
             f"🎲 **Table No. {t_id}**\n\n"
             f"(1). {p1_tag} ✅\n"
             f"(2). {p2_tag}\n\n"
-            f"💰 **{bet}** ({bet}+{profit}) 🏆"
-        )
-        w_bal = db["users"][p1_uid]["balance"]
