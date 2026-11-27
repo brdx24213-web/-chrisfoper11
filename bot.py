@@ -6,19 +6,12 @@ import os
 import time
 import threading
 
-# Render Environment Variables से सुरक्षित रूप से टोकन और ID लेना
-BOT_TOKEN = os.environ.get("BOT_TOKEN", "").strip()
-ADMIN_ID_STR = os.environ.get("ADMIN_ID", "").strip()
-
-ADMIN_IDS = []
-if ADMIN_ID_STR:
-    for x in ADMIN_ID_STR.split(","):
-        if x.strip().isdigit():
-            ADMIN_IDS.append(int(x.strip()))
-
-if not BOT_TOKEN:
-    print("ERROR: BOT_TOKEN nahi mila! Render Environment me BOT_TOKEN dalein.")
-    exit(1)
+# ==========================================================
+# यहाँ अपना BotFather वाला टोकन और अपनी Telegram ID डालें
+# ==========================================================
+BOT_TOKEN = "YAHAN_APNA_TOKEN_DALEIN"
+ADMIN_ID = 123456789  # यहाँ 123456789 हटाकर अपनी असली Telegram ID लिखें
+# ==========================================================
 
 bot = telebot.TeleBot(BOT_TOKEN)
 app = Flask(__name__)
@@ -29,7 +22,7 @@ def home():
     return "Bot is alive and running!"
 
 def run_web():
-    port = int(os.environ.get("PORT", 8080))
+    port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
 
 def load_data():
@@ -48,7 +41,7 @@ def save_data(data):
 db = load_data()
 
 def is_admin(user_id):
-    return user_id in ADMIN_IDS
+    return int(user_id) == int(ADMIN_ID)
 
 def delete_msg_safe(chat_id, message_id, delay=0):
     def _del():
@@ -304,3 +297,4 @@ def handle_table_buttons(call):
 
         if winner_id and winner_id in db["users"]:
             db["users"][winner_id]["balance"] = round(db["users"][winner_id]["balance"] + total_win_payout, 2)
+            new_bal = db["users"][winner_id
