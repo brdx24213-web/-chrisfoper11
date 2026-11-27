@@ -12,11 +12,7 @@ DATA_FILE = "bot_data.json"
 
 @app.route('/')
 def home():
-    return "Bot is alive!"
-
-def run_web():
-    port = int(os.environ.get("PORT", 10000))
-    app.run(host="0.0.0.0", port=port)
+    return "Bot is alive and running!"
 
 def load_data():
     if os.path.exists(DATA_FILE):
@@ -44,7 +40,7 @@ def delete_later(chat_id, msg_ids, delay=3):
                 bot.delete_message(chat_id, mid)
             except Exception:
                 pass
-    threading.Thread(target=task).start()
+    threading.Thread(target=task, daemon=True).start()
 
 def ensure_user(uid, name, username=None):
     uid = str(uid)
@@ -137,12 +133,12 @@ def admin_update_balance(message):
     else:
         parts = text.split()
         if len(parts) == 2:
-            amount = int(parts)
-            f_uid, _ = find_user(parts)
+            amount = int(parts[1])
+            f_uid, _ = find_user(parts[0])
             if f_uid:
                 target_uid = f_uid
             else:
-                cu = parts.replace("@", "")
+                cu = parts[0].replace("@", "")
                 target_uid = f"user_{cu.lower()}"
                 ensure_user(target_uid, cu, cu)
     if not target_uid:
@@ -172,15 +168,15 @@ def create_table(message):
         u1 = message.reply_to_message.from_user
         p1_uid = str(u1.id)
         ensure_user(p1_uid, u1.first_name, u1.username)
-        f2, _ = find_user(parts)
+        f2, _ = find_user(parts[0])
         if f2:
             p2_uid = f2
         else:
-            cu = parts.replace("@", "")
+            cu = parts[0].replace("@", "")
             p2_uid = f"user_{cu.lower()}"
             ensure_user(p2_uid, cu, cu)
     elif len(parts) >= 3:
-        for idx, q in enumerate([parts, parts]):
+        for idx, q in enumerate([parts[0], parts[1]]):
             f_id, _ = find_user(q)
             if not f_id:
                 cu = q.replace("@", "")
@@ -250,3 +246,5 @@ def register_user(message):
             ensure_user(uid, message.from_user.first_name, uname)
             db["users"][uid]["balance"] += tb
             del db["users"][tid]
+            save_data(db)
+            return
