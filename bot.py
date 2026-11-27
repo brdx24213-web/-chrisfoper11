@@ -94,7 +94,9 @@ def get_display_tag(uid):
     return f"[{name}](tg://user?id={uid})"
 
 
-def send_personal_update(user_id, text_msg):
+def send_pm(user_id, text_msg):
+    if str(user_id).startswith("user_"):
+        return
     try:
         bot.send_message(int(user_id), text_msg, parse_mode="Markdown")
     except Exception:
@@ -117,8 +119,8 @@ def update_pinned_list(chat_id):
         if bal != 0:
             has_users = True
             tag = get_display_tag(uid)
-            status_emoji = "🟢" if bal > 0 else "🔴"
-            lines.append(f"{status_emoji} {tag} : **{bal}**")
+            icon = "🟢" if bal > 0 else "🔴"
+            lines.append(f"{icon} {tag} : **{bal}**")
 
     if not has_users:
         lines.append("अभी किसी भी प्लेयर का बैलेंस नहीं है।")
@@ -174,10 +176,15 @@ def check_balance(message):
     bot.reply_to(message, reply_text, parse_mode="Markdown")
 
 
-@bot.message_handler(func=lambda m: is_admin(m.from_user.id) and m.text and re.match(r'^(@\w+\s+)?[+-]\d+$', m.text.strip()))
+@bot.message_handler(
+    func=lambda m: is_admin(m.from_user.id)
+    and m.text
+    and re.match(r'^(@\w+\s+)?[+-]\d+$', m.text.strip())
+)
 def admin_update_balance(message):
     text = message.text.strip()
     target_uid = None
+    amount = 0
 
     if message.reply_to_message:
         target = message.reply_to_message.from_user
@@ -189,7 +196,7 @@ def admin_update_balance(message):
         if len(parts) == 2:
             q_user = parts[0]
             amount = int(parts[1])
-            found_uid, info = find_user(q_user)
+            found_uid, _ = find_user(q_user)
             if found_uid:
                 target_uid = found_uid
             else:
@@ -200,37 +207,36 @@ def admin_update_balance(message):
     if not target_uid:
         return
 
-    db["users"][target_uid]["balance"] = db["users"][target_uid].get("balance", 0) + amount
-    new_bal = db["users"][target_uid]["balance"]
+    old_bal = db["users"][target_uid].get("balance", 0)
+    new_bal = old_bal + amount
+    db["users"][target_uid]["balance"] = new_bal
     save_data(db)
 
     tag = get_display_tag(target_uid)
     action_word = "Add" if amount > 0 else "Minus"
-    confirm_msg = bot.send_message(
-        message.chat.id,
-        f"✅ {tag} का बैलेंस **{amount:+}** ({action_word}) हुआ। नया बैलेंस: **{new_bal}**",
-        parse_mode="Markdown"
-    )
+    msg_out = f"✅ {tag} का बैलेंस **{amount:+}** ({action_word}) हुआ। नया बैलेंस: **{new_bal}**"
+    confirm_msg = bot.send_message(message.chat.id, msg_out, parse_mode="Markdown")
 
-    if not str(target_uid).startswith("user_"):
-        send_personal_update(
-            target_uid,
-            f"💳 **Balance Update**\n\nबदलाव: **{amount:+}**\nनया कुल बैलेंस: **{new_bal}**"
-        )
+    pm_text = f"💳 **Balance Update**\n\nबदलाव: **{amount:+}**\nनया कुल बैलेंस: **{new_bal}**"
+    send_pm(target_uid, pm_text)
 
     if message.chat.type in ["group", "supergroup"]:
         update_pinned_list(message.chat.id)
         delete_later(message.chat.id, [message.message_id, confirm_msg.message_id], delay=3)
 
 
-@bot.message_handler(func=lambda m: is_admin(m.from_user.id) and m.chat.type in ["group", "supergroup"] and m.text and re.search(r'\d+$', m.text.strip()))
+@bot.message_handler(
+    func=lambda m: is_admin(m.from_user.id)
+    and m.chat.type in ["group", "supergroup"]
+    and m.text
+    and re.search(r'\d+$', m.text.strip())
+)
 def create_table(message):
     text = message.text.strip()
-    parts = text.split()
-
     if re.match(r'^(@\w+\s+)?[+-]\d+$', text):
         return
 
+    parts = text.split()
     try:
         bet = int(parts[-1])
     except ValueError:
@@ -309,7 +315,6 @@ def create_table(message):
     )
 
     bot.send_message(message.chat.id, table_text, reply_markup=markup, parse_mode="Markdown")
-
     update_pinned_list(message.chat.id)
     delete_later(message.chat.id, [message.message_id], delay=2)
 
@@ -346,6 +351,4 @@ def handle_table_buttons(call):
             f"(2). {p2_tag}\n\n"
             f"💰 **{bet}** ({bet}+{profit}) 🏆"
         )
-        if not str(p1_uid).startswith("user_"):
-            send_personal_update(
-                p1_uid,
+        w_bal = db["users"][p1_uid]["balance"]
