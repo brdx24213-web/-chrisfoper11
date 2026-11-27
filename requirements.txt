@@ -1,3 +1,5 @@
-bot.infinity_polling()
+pyTelegramBotAPI
+flask
+
 
 
