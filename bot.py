@@ -302,3 +302,6 @@ def handle_table_buttons(call):
                 f"🏆 Table #{table_id} Won! (+{total_win_payout} [10% Comm.])",
                 new_bal, call.message.chat.id
             )
+if __name__ == "__main__":
+    threading.Thread(target=run_web).start()
+    bot.infinity_polling()
