@@ -6,8 +6,8 @@ import time
 import threading
 
 # यहाँ अपना BotFather वाला टोकन और अपनी Telegram User ID (Admin) डालें
-BOT_TOKEN = "YOUR_BOT_TOKEN_HERE"
-ADMIN_IDS = [123456789]  # अपनी Telegram Numeric ID यहाँ लिखें
+BOT_TOKEN = "9115969168:AAE32p5Vj9-kZSRI7ck9ReIJ1EJccgQs9SM"
+ADMIN_IDS = 8783427206  # अपनी Telegram Numeric ID यहाँ लिखें
 
 bot = telebot.TeleBot(BOT_TOKEN)
 DATA_FILE = "bot_data.json"
