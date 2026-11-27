@@ -40,7 +40,9 @@ def delete_later(chat_id, msg_ids, delay=10):
                 bot.delete_message(chat_id, mid)
             except Exception:
                 pass
-    threading.Thread(target=task, daemon=True).start()
+    t = threading.Thread(target=task)
+    t.daemon = True
+    t.start()
 
 def ensure_user(uid, name, username=""):
     uid = str(uid)
@@ -257,4 +259,4 @@ def run_flask():
     app.run(host="0.0.0.0", port=port)
 
 if __name__ == "__main__":
-    threading.Thread(target=run_flask,
+    t = threading.Thread(target=run_flask
