@@ -6,15 +6,24 @@ import os
 import time
 import threading
 
-# 1. यहाँ अपना BotFather वाला टोकन और अपनी Telegram Numeric ID डालें
-BOT_TOKEN = "9115969168:AAE32p5Vj9-kZSRI7ck9ReIJ1EJccgQs9SM"
-ADMIN_IDS = [123456789]  # अपनी Telegram Numeric ID इस ब्रैकेट [ ] के अंदर लिखें
+# Render Environment Variables से सुरक्षित रूप से टोकन और ID लेना
+BOT_TOKEN = os.environ.get("BOT_TOKEN", "").strip()
+ADMIN_ID_STR = os.environ.get("ADMIN_ID", "").strip()
+
+ADMIN_IDS = []
+if ADMIN_ID_STR:
+    for x in ADMIN_ID_STR.split(","):
+        if x.strip().isdigit():
+            ADMIN_IDS.append(int(x.strip()))
+
+if not BOT_TOKEN:
+    print("ERROR: BOT_TOKEN nahi mila! Render Environment me BOT_TOKEN dalein.")
+    exit(1)
 
 bot = telebot.TeleBot(BOT_TOKEN)
 app = Flask(__name__)
 DATA_FILE = "bot_data.json"
 
-# Render के पोर्ट को चालू रखने के लिए वेब सर्वर
 @app.route('/')
 def home():
     return "Bot is alive and running!"
@@ -23,11 +32,13 @@ def run_web():
     port = int(os.environ.get("PORT", 8080))
     app.run(host="0.0.0.0", port=port)
 
-# डेटा लोड और सेव करने के लिए
 def load_data():
     if os.path.exists(DATA_FILE):
-        with open(DATA_FILE, "r") as f:
-            return json.load(f)
+        try:
+            with open(DATA_FILE, "r") as f:
+                return json.load(f)
+        except Exception:
+            pass
     return {"users": {}, "tables": {}, "table_counter": 1, "pinned_msg_id": None, "group_id": None}
 
 def save_data(data):
@@ -47,7 +58,7 @@ def delete_msg_safe(chat_id, message_id, delay=0):
             bot.delete_message(chat_id, message_id)
         except Exception:
             pass
-    threading.Thread(target=_del).start()
+    threading.Thread(target=_del, daemon=True).start()
 
 def send_balance_update(user_id, name, change_text, new_bal, group_id=None):
     msg = (
@@ -118,7 +129,7 @@ def add_balance(message):
     amount = 0
 
     try:
-        if message.reply_to_message:
+        if message.reply_to_message and len(args) >= 2:
             target_id = str(message.reply_to_message.from_user.id)
             target_name = message.reply_to_message.from_user.first_name
             amount = float(args[1])
@@ -154,7 +165,7 @@ def minus_balance(message):
     amount = 0
 
     try:
-        if message.reply_to_message:
+        if message.reply_to_message and len(args) >= 2:
             target_id = str(message.reply_to_message.from_user.id)
             target_name = message.reply_to_message.from_user.first_name
             amount = float(args[1])
@@ -293,9 +304,3 @@ def handle_table_buttons(call):
 
         if winner_id and winner_id in db["users"]:
             db["users"][winner_id]["balance"] = round(db["users"][winner_id]["balance"] + total_win_payout, 2)
-            new_bal = db["users"][winner_id]["balance"]
-            send_balance_update(
-                winner_id, winner_name,
-                f"🏆 Table #{table_id} Won! (+{total_win_payout} [10% Comm.])",
-                new_bal, call.message.chat.id
-            )
