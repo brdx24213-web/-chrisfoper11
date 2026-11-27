@@ -6,12 +6,9 @@ import os
 import time
 import threading
 
-# ==========================================================
-# यहाँ अपना BotFather वाला टोकन और अपनी Telegram ID डालें
-# ==========================================================
-BOT_TOKEN = "9115969168:AAEjNaf0rb74vuDr_pAFQtpo28iNgnd_fNU"
+# यहाँ डबल कोट्स के अंदर अपना BotFather वाला टोकन डालें
+BOT_TOKEN = "YAHAN_APNA_TOKEN_DALEIN"
 ADMIN_ID = 8783427206
-# ==========================================================
 
 bot = telebot.TeleBot(BOT_TOKEN)
 app = Flask(__name__)
@@ -19,7 +16,7 @@ DATA_FILE = "bot_data.json"
 
 @app.route('/')
 def home():
-    return "Bot is running!"
+    return "Bot is alive and running!"
 
 def run_web():
     port = int(os.environ.get("PORT", 10000))
@@ -300,3 +297,8 @@ def handle_table_buttons(call):
         if winner_id and winner_id in db["users"]:
             db["users"][winner_id]["balance"] = round(db["users"][winner_id]["balance"] + total_win_payout, 2)
             new_bal = db["users"][winner_id]["balance"]
+            send_balance_update(
+                winner_id, winner_name,
+                f"🏆 Table #{table_id} Won! (+{total_win_payout} [10% Comm.])",
+                new_bal, call.message.chat.id
+            )
