@@ -32,7 +32,7 @@ db = load_data()
 def is_admin(uid):
     return uid == ADMIN_ID
 
-def delete_later(chat_id, msg_ids, delay=3):
+def delete_later(chat_id, msg_ids, delay=10):
     def task():
         time.sleep(delay)
         for mid in msg_ids:
@@ -42,10 +42,10 @@ def delete_later(chat_id, msg_ids, delay=3):
                 pass
     threading.Thread(target=task, daemon=True).start()
 
-def ensure_user(uid, name, username=None):
+def ensure_user(uid, name, username=""):
     uid = str(uid)
     if uid not in db["users"]:
-        db["users"][uid] = {"name": name, "username": username or "", "balance": 0}
+        db["users"][uid] = {"name": name or "Player", "username": username or "", "balance": 0}
     else:
         if name:
             db["users"][uid]["name"] = name
@@ -54,11 +54,13 @@ def ensure_user(uid, name, username=None):
     save_data(db)
 
 def find_user(query):
-    cq = query.replace("@", "").strip().lower()
+    q = query.replace("@", "").strip().lower()
+    if q in db["users"]:
+        return q, db["users"][q]
     for uid, info in db["users"].items():
-        if info.get("username", "").lower() == cq and cq != "":
+        if info.get("username", "").lower() == q:
             return uid, info
-        if info.get("name", "").lower() == cq:
+        if info.get("name", "").lower() == q:
             return uid, info
     return None, None
 
@@ -78,13 +80,13 @@ def send_pm(uid, text):
 
 def update_pinned_list(chat_id):
     cid = str(chat_id)
-    lines = ["📊 **PLAYER BALANCE LIST** 📊\n"]
-    sorted_u = sorted(db["users"].items(), key=lambda x: x.get("balance", 0), reverse=True)
+    lines = ["📊 **PLAYER BALANCE LIST**\n"]
+    sorted_u = sorted(db["users"].items(), key=lambda x: x[1].get("balance", 0), reverse=True)
     for uid, info in sorted_u:
         bal = info.get("balance", 0)
         if bal != 0:
             icon = "🟢" if bal > 0 else "🔴"
-            lines.append(f"{icon} {get_tag(uid)} : **{bal}**")
+            lines.append(f"{icon} {get_tag(uid)} : ₹{bal}")
     if len(lines) == 1:
         lines.append("अभी किसी भी प्लेयर का बैलेंस नहीं है।")
     list_text = "\n".join(lines)
@@ -99,11 +101,11 @@ def update_pinned_list(chat_id):
         sent = bot.send_message(chat_id, list_text, parse_mode="Markdown")
         db.setdefault("pinned_msg", {})[cid] = sent.message_id
         save_data(db)
-        bot.pin_chat_message(chat_id, sent.message_id, disable_notification=True)
+        bot.pin_chat_message(chat_id, sent.message_id)
     except Exception:
         pass
 
-@bot.message_handler(commands=['start', 'balance', 'bal'])
+@bot.message_handler(commands=['start', 'bal', 'balance'])
 def check_balance(message):
     uid = str(message.from_user.id)
     name = message.from_user.first_name
@@ -117,10 +119,10 @@ def check_balance(message):
             save_data(db)
     bal = db["users"][uid].get("balance", 0)
     tag = f"@{uname}" if uname else name
-    txt = f"👋 Hello **{tag}**!\n\n💰 आपका वर्तमान बैलेंस: **{bal}**\n🎮 टेबल खेलने के लिए ग्रुप में एडमिन को बोलें।"
+    txt = f"👋 Hello **{tag}**!\n\n💰 आपका वर्तमान बैलेंस: **₹{bal}**"
     bot.reply_to(message, txt, parse_mode="Markdown")
 
-@bot.message_handler(func=lambda m: is_admin(m.from_user.id) and m.text and re.match(r'^(@\w+\s+)?[+-]\d+$', m.text.strip()))
+@bot.message_handler(func=lambda m: is_admin(m.from_user.id) and re.match(r'^(@\w+\s+)?[+-]\d+$', m.text.strip() if m.text else ""))
 def admin_update_balance(message):
     text = message.text.strip()
     target_uid = None
@@ -134,26 +136,26 @@ def admin_update_balance(message):
         parts = text.split()
         if len(parts) == 2:
             amount = int(parts[1])
-            f_uid, _ = find_user(parts[0])
-            if f_uid:
-                target_uid = f_uid
+            f_id, _ = find_user(parts[0])
+            if f_id:
+                target_uid = f_id
             else:
                 cu = parts[0].replace("@", "")
                 target_uid = f"user_{cu.lower()}"
                 ensure_user(target_uid, cu, cu)
     if not target_uid:
         return
-    db["users"][target_uid]["balance"] = db["users"][target_uid].get("balance", 0) + amount
+    db["users"][target_uid]["balance"] += amount
     nb = db["users"][target_uid]["balance"]
     save_data(db)
     tag = get_tag(target_uid)
-    c_msg = bot.send_message(message.chat.id, f"✅ {tag} का बैलेंस **{amount:+}** हुआ। नया बैलेंस: **{nb}**", parse_mode="Markdown")
-    send_pm(target_uid, f"💳 **Balance Update**\n\nबदलाव: **{amount:+}**\nनया कुल बैलेंस: **{nb}**")
+    c_msg = bot.send_message(message.chat.id, f"✅ {tag} का बैलेंस अपडेट हो गया!\n💰 नया बैलेंस: **₹{nb}**", parse_mode="Markdown")
+    send_pm(target_uid, f"💳 **Balance Updated!**\n\nबदलाव: `{amount:+d}`\nनया बैलेंस: **₹{nb}**")
     if message.chat.type in ["group", "supergroup"]:
         update_pinned_list(message.chat.id)
-        delete_later(message.chat.id, [message.message_id, c_msg.message_id], delay=3)
+        delete_later(message.chat.id, [message.message_id, c_msg.message_id])
 
-@bot.message_handler(func=lambda m: is_admin(m.from_user.id) and m.chat.type in ["group", "supergroup"] and m.text and re.search(r'\d+$', m.text.strip()))
+@bot.message_handler(func=lambda m: is_admin(m.from_user.id) and m.text)
 def create_table(message):
     text = message.text.strip()
     if re.match(r'^(@\w+\s+)?[+-]\d+$', text):
@@ -164,7 +166,7 @@ def create_table(message):
     except ValueError:
         return
     p1_uid, p2_uid = None, None
-    if message.reply_to_message and len(parts) >= 2:
+    if message.reply_to_message and len(parts) == 2:
         u1 = message.reply_to_message.from_user
         p1_uid = str(u1.id)
         ensure_user(p1_uid, u1.first_name, u1.username)
@@ -194,18 +196,18 @@ def create_table(message):
     t_id = str(db["table_count"])
     db["tables"][t_id] = {"p1_uid": p1_uid, "p2_uid": p2_uid, "bet": bet, "status": "active"}
     save_data(db)
-    t_text = f"🎲 **Table No. {t_id}**\n\n(1). {get_tag(p1_uid)}\n(2). {get_tag(p2_uid)}\n\n💰 **{bet}** ✅ **BEST ★ OF ★ LUCK**"
+    t_text = f"🎲 **Table No. {t_id}**\n\n(1). {get_tag(p1_uid)}\n(2). {get_tag(p2_uid)}\n\n💰 Bet: **₹{bet}**"
     mk = InlineKeyboardMarkup()
     mk.row(InlineKeyboardButton("win1 🏆", callback_data=f"w1_{t_id}"), InlineKeyboardButton("win2 🏆", callback_data=f"w2_{t_id}"))
-    mk.row(InlineKeyboardButton("cancel ❌", callback_data=f"cn_{t_id}"))
+    mk.row(InlineKeyboardButton("cancel ❌", callback_data=f"cancel_{t_id}"))
     bot.send_message(message.chat.id, t_text, reply_markup=mk, parse_mode="Markdown")
     update_pinned_list(message.chat.id)
-    delete_later(message.chat.id, [message.message_id], delay=2)
+    delete_later(message.chat.id, [message.message_id])
 
-@bot.callback_query_handler(func=lambda call: call.data.startswith(("w1_", "w2_", "cn_")))
+@bot.callback_query_handler(func=lambda call: call.data.startswith(("w1_", "w2_", "cancel_")))
 def handle_table_buttons(call):
     if not is_admin(call.from_user.id):
-        bot.answer_callback_query(call.id, "❌ सिर्फ़ एडमिन ही बटन दबा सकता है!", show_alert=True)
+        bot.answer_callback_query(call.id, "❌ सिर्फ़ एडमिन ही इसे दबा सकते हैं!", show_alert=True)
         return
     action, t_id = call.data.split("_")
     table = db.get("tables", {}).get(t_id)
@@ -218,22 +220,22 @@ def handle_table_buttons(call):
     if action == "w1":
         db["users"][p1]["balance"] = db["users"][p1].get("balance", 0) + win_amt
         table["status"] = "win1"
-        nt = f"🎲 **Table No. {t_id}**\n\n(1). {get_tag(p1)} ✅\n(2). {get_tag(p2)}\n\n💰 **{bet}** ({bet}+{profit}) 🏆"
-        send_pm(p1, f"🏆 बधाई हो! आप Table #{t_id} जीत गए।\n➕ जीत: **+{win_amt}**\n💰 नया बैलेंस: **{db['users'][p1]['balance']}**")
+        nt = f"🎲 **Table No. {t_id}**\n\n(1). {get_tag(p1)} 🏆 (Winner)\n(2). {get_tag(p2)}\n\n💰 Win Amount: **₹{win_amt}**"
+        send_pm(p1, f"🏆 बधाई हो! आप Table #{t_id} जीत गए हैं।\n💰 आपको **₹{win_amt}** मिले हैं।")
     elif action == "w2":
         db["users"][p2]["balance"] = db["users"][p2].get("balance", 0) + win_amt
         table["status"] = "win2"
-        nt = f"🎲 **Table No. {t_id}**\n\n(1). {get_tag(p1)}\n(2). {get_tag(p2)} ✅\n\n💰 **{bet}** ({bet}+{profit}) 🏆"
-        send_pm(p2, f"🏆 बधाई हो! आप Table #{t_id} जीत गए।\n➕ जीत: **+{win_amt}**\n💰 नया बैलेंस: **{db['users'][p2]['balance']}**")
+        nt = f"🎲 **Table No. {t_id}**\n\n(1). {get_tag(p1)}\n(2). {get_tag(p2)} 🏆 (Winner)\n\n💰 Win Amount: **₹{win_amt}**"
+        send_pm(p2, f"🏆 बधाई हो! आप Table #{t_id} जीत गए हैं।\n💰 आपको **₹{win_amt}** मिले हैं।")
     else:
         db["users"][p1]["balance"] = db["users"][p1].get("balance", 0) + bet
         db["users"][p2]["balance"] = db["users"][p2].get("balance", 0) + bet
         table["status"] = "cancelled"
-        nt = f"🎲 **Table No. {t_id}** ❌❌\n\n(1). {get_tag(p1)}\n(2). {get_tag(p2)}\n\n💰 **{bet}** (Table Cancelled ❌❌)"
+        nt = f"❌ **Table No. {t_id}**\n\nयह टेबल कैंसिल कर दी गई है और दोनों प्लेयर्स का बैलेंस वापस कर दिया गया है।"
     save_data(db)
     bot.edit_message_text(nt, chat_id=call.message.chat.id, message_id=call.message.message_id, parse_mode="Markdown")
     update_pinned_list(call.message.chat.id)
-    bot.answer_callback_query(call.id, "✅ टेबल अपडेट हो गई!")
+    bot.answer_callback_query(call.id, "✅ अपडेट हो गया!")
 
 @bot.message_handler(func=lambda m: True)
 def register_user(message):
@@ -247,4 +249,12 @@ def register_user(message):
             db["users"][uid]["balance"] += tb
             del db["users"][tid]
             save_data(db)
-            return
+        else:
+            ensure_user(uid, message.from_user.first_name, uname)
+
+def run_flask():
+    port = int(os.environ.get("PORT", 8080))
+    app.run(host="0.0.0.0", port=port)
+
+if __name__ == "__main__":
+    threading.Thread(target=run_flask,
