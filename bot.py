@@ -7,7 +7,7 @@ import time
 import threading
 
 # यहाँ डबल कोट्स के अंदर अपना BotFather वाला टोकन डालें
-BOT_TOKEN = "YAHAN_APNA_TOKEN_DALEIN"
+BOT_TOKEN = os.getenv("BOT_TOKEN")
 ADMIN_ID = 8783427206
 
 bot = telebot.TeleBot(BOT_TOKEN)
