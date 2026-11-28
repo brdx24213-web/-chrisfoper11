@@ -4,7 +4,7 @@ from flask import Flask
 import json, os, time, threading, urllib.request
 
 # सुरक्षा के लिए @BotFather से नया टोकन बनाकर नीचे पेस्ट करें
-BOT_TOKEN = "9115969168:AAEPj8_BPStVjsBa0cO72tO01kU3Q-x7kS0"
+BOT_TOKEN = "9115969168:AAEPj8_BPStVjsBaGK_2y4rhFxgEj84ae3w"
 ADMIN_ID = 8783427206
 
 bot = telebot.TeleBot(BOT_TOKEN)
