@@ -6,6 +6,9 @@ import json, os, time, threading, re
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 ADMIN_ID = 8783427206
 
+if not BOT_TOKEN:
+    raise ValueError("ERROR: Render ke Environment Variables mein BOT_TOKEN nahi dala gaya hai!")
+
 bot = telebot.TeleBot(BOT_TOKEN)
 app = Flask(__name__)
 DATA_FILE = "bot_data.json"
@@ -32,7 +35,6 @@ db = load_data()
 def is_admin(uid):
     return uid == ADMIN_ID
 
-# यूजरनेम या नाम में अंडरस्कोर (_) होने पर Markdown क्रैश से बचाने के लिए
 def escape_md(text):
     if not text:
         return ""
@@ -259,4 +261,3 @@ def register_user(message):
             tb = db["users"][tid].get("balance", 0)
             ensure_user(uid, message.from_user.first_name, uname)
             db["users"][uid]["balance"] += tb
-            del db["users"][tid]
