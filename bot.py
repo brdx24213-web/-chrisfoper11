@@ -3,11 +3,10 @@ from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 from flask import Flask
 import json, os, time, threading, urllib.request
 
-BOT_TOKEN = (os.getenv("BOT_TOKEN") or "").strip()
+# अगर Render Environment में BOT_TOKEN सही सेव है तो यह अपने आप ले लेगा,
+# वरना नीचे "YOUR_BOT_TOKEN_HERE" की जगह अपना असली टोकन लिख दें:
+BOT_TOKEN = (os.getenv("BOT_TOKEN") or "YOUR_BOT_TOKEN_HERE").strip()
 ADMIN_ID = 8783427206
-
-if not BOT_TOKEN:
-    raise ValueError("BOT_TOKEN missing! Render Environment me BOT_TOKEN add karein.")
 
 bot = telebot.TeleBot(BOT_TOKEN)
 app = Flask(__name__)
@@ -275,5 +274,3 @@ def handle_btn(c):
     elif act == "w2":
         ob = db["users"][p2].get("balance", 0)
         db["users"][p2]["balance"] = ob + prof
-        db["users"][p1]["balance"] = db["users"][p1].get("balance", 0) - bet
-        db["users"][p2]["hist"] = f"{ob}+{prof}" if ob > 0 else f"{bet}+{prof}"
