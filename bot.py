@@ -7,7 +7,8 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 ADMIN_ID = 8783427206
 
 if not BOT_TOKEN:
-    raise ValueError("ERROR: Render ke Environment Variables mein BOT_TOKEN nahi dala gaya hai!")
+    print("CRITICAL ERROR: BOT_TOKEN Environment Variable nahi mila!")
+    time.sleep(60)
 
 bot = telebot.TeleBot(BOT_TOKEN)
 app = Flask(__name__)
@@ -38,9 +39,9 @@ def is_admin(uid):
 def escape_md(text):
     if not text:
         return ""
-    for ch in ['_', '*', '`', '[']:
-        text = str(text).replace(ch, f'\\{ch}')
-    return text
+    s = str(text)
+    s = s.replace('_', '\\_').replace('*', '\\*').replace('`', '\\`').replace('[', '\\[')
+    return s
 
 def delete_later(chat_id, msg_ids, delay=10):
     def task():
@@ -56,20 +57,23 @@ def delete_later(chat_id, msg_ids, delay=10):
 
 def ensure_user(uid, name, username=""):
     uid = str(uid)
-    if uid not in db["users"]:
-        db["users"][uid] = {"name": name or "Player", "username": username or "", "balance": 0}
+    users = db.get("users", {})
+    if uid not in users:
+        users[uid] = {"name": name or "Player", "username": username or "", "balance": 0}
     else:
         if name:
-            db["users"][uid]["name"] = name
+            users[uid]["name"] = name
         if username:
-            db["users"][uid]["username"] = username
+            users[uid]["username"] = username
+    db["users"] = users
     save_data(db)
 
 def find_user(query):
     q = query.replace("@", "").strip().lower()
-    if q in db["users"]:
-        return q, db["users"][q]
-    for uid, info in db["users"].items():
+    users = db.get("users", {})
+    if q in users:
+        return q, users.get(q)
+    for uid, info in users.items():
         if info.get("username", "").lower() == q:
             return uid, info
         if info.get("name", "").lower() == q:
@@ -77,7 +81,7 @@ def find_user(query):
     return None, None
 
 def get_tag(uid):
-    info = db["users"].get(str(uid), {})
+    info = db.get("users", {}).get(str(uid), {})
     uname = info.get("username", "")
     name = info.get("name", "Player")
     return f"@{escape_md(uname)}" if uname else f"[{escape_md(name)}](tg://user?id={uid})"
@@ -93,7 +97,7 @@ def send_pm(uid, text):
 def update_pinned_list(chat_id):
     cid = str(chat_id)
     lines = ["📊 *PLAYER BALANCE LIST*\n"]
-    sorted_u = sorted(db["users"].items(), key=lambda x: x[1].get("balance", 0), reverse=True)
+    sorted_u = sorted(db.get("users", {}).items(), key=lambda x: x[1].get("balance", 0), reverse=True)
     for uid, info in sorted_u:
         bal = info.get("balance", 0)
         if bal != 0:
@@ -147,12 +151,13 @@ def admin_update_balance(message):
     else:
         parts = text.split()
         if len(parts) == 2:
-            amount = int(parts[1])
-            f_id, _ = find_user(parts[0])
+            p_user, p_amt = parts
+            amount = int(p_amt)
+            f_id, _ = find_user(p_user)
             if f_id:
                 target_uid = f_id
             else:
-                cu = parts[0].replace("@", "")
+                cu = p_user.replace("@", "")
                 target_uid = f"user_{cu.lower()}"
                 ensure_user(target_uid, cu, cu)
     if not target_uid:
@@ -165,7 +170,7 @@ def admin_update_balance(message):
     send_pm(target_uid, f"💳 *Balance Updated!*\n\nबदलाव: `{amount:+d}`\nनया बैलेंस: *₹{nb}*")
     if message.chat.type in ["group", "supergroup"]:
         update_pinned_list(message.chat.id)
-        delete_later(message.chat.id, [message.message_id, c_msg.message_id])
+        delete_later(message.chat.id, (message.message_id, c_msg.message_id))
 
 @bot.message_handler(func=lambda m: m.text and is_admin(m.from_user.id))
 def create_table(message):
@@ -174,36 +179,42 @@ def create_table(message):
         return
     parts = text.split()
     try:
-        bet = int(parts[-1])
+        bet = int(parts.pop())
         if bet <= 0:
             return
-    except ValueError:
+    except Exception:
         return
     p1_uid, p2_uid = None, None
-    if message.reply_to_message and len(parts) == 2:
+    if message.reply_to_message and len(parts) == 1:
         u1 = message.reply_to_message.from_user
         p1_uid = str(u1.id)
         ensure_user(p1_uid, u1.first_name, u1.username)
-        f2, _ = find_user(parts[0])
+        p2_name = parts.pop()
+        f2, _ = find_user(p2_name)
         if f2:
             p2_uid = f2
         else:
-            cu = parts[0].replace("@", "")
+            cu = p2_name.replace("@", "")
             p2_uid = f"user_{cu.lower()}"
             ensure_user(p2_uid, cu, cu)
-    elif len(parts) >= 3:
-        for idx, q in enumerate([parts[0], parts[1]]):
-            f_id, _ = find_user(q)
-            if not f_id:
-                cu = q.replace("@", "")
-                f_id = f"user_{cu.lower()}"
-                ensure_user(f_id, cu, cu)
-            if idx == 0:
-                p1_uid = f_id
-            else:
-                p2_uid = f_id
+    elif len(parts) >= 2:
+        q1, q2 = parts
+        f1, _ = find_user(q1)
+        if not f1:
+            cu1 = q1.replace("@", "")
+            f1 = f"user_{cu1.lower()}"
+            ensure_user(f1, cu1, cu1)
+        p1_uid = f1
+        
+        f2, _ = find_user(q2)
+        if not f2:
+            cu2 = q2.replace("@", "")
+            f2 = f"user_{cu2.lower()}"
+            ensure_user(f2, cu2, cu2)
+        p2_uid = f2
     else:
         return
+
     db["users"][p1_uid]["balance"] = db["users"][p1_uid].get("balance", 0) - bet
     db["users"][p2_uid]["balance"] = db["users"][p2_uid].get("balance", 0) - bet
     db["table_count"] = db.get("table_count", 0) + 1
@@ -216,7 +227,7 @@ def create_table(message):
     mk.row(InlineKeyboardButton("cancel ❌", callback_data=f"cancel_{t_id}"))
     bot.send_message(message.chat.id, t_text, reply_markup=mk, parse_mode="Markdown")
     update_pinned_list(message.chat.id)
-    delete_later(message.chat.id, [message.message_id])
+    delete_later(message.chat.id, (message.message_id,))
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith(("w1_", "w2_", "cancel_")))
 def handle_table_buttons(call):
@@ -256,8 +267,4 @@ def register_user(message):
     if message.from_user and not message.from_user.is_bot:
         uid = str(message.from_user.id)
         uname = message.from_user.username
-        if uname and f"user_{uname.lower()}" in db["users"]:
-            tid = f"user_{uname.lower()}"
-            tb = db["users"][tid].get("balance", 0)
-            ensure_user(uid, message.from_user.first_name, uname)
-            db["users"][uid]["balance"] += tb
+
