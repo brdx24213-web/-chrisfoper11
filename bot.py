@@ -3,11 +3,11 @@ from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 from flask import Flask
 import json, os, time, threading, urllib.request
 
-BOT_TOKEN = os.getenv("BOT_TOKEN")
+BOT_TOKEN = (os.getenv("BOT_TOKEN") or "").strip()
 ADMIN_ID = 8783427206
 
 if not BOT_TOKEN:
-    raise ValueError("BOT_TOKEN environment variable set nahi hai!")
+    raise ValueError("BOT_TOKEN missing! Render Environment me BOT_TOKEN add karein.")
 
 bot = telebot.TeleBot(BOT_TOKEN)
 app = Flask(__name__)
