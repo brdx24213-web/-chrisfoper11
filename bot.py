@@ -19,7 +19,7 @@ def home():
     return "Bot is alive and running 24/7!"
 
 def keep_alive_ping():
-    url = os.environ.get("RENDER_EXTERNAL_URL", "https://chrisfoper11.onrender.com")
+    url = os.environ.get("RENDER_EXTERNAL_URL", "https://onrender.com")
     while True:
         time.sleep(600)
         try:
