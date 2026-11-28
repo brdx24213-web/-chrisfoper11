@@ -8,7 +8,7 @@ from telegram.ext import Application, CommandHandler, CallbackQueryHandler, Cont
 
 # --- 1. Render Environment Variables ---
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
-ADMIN_IDS = [int(x.strip()) for x in os.environ.get("ADMIN_IDS", "").split(",") if x.strip()]
+ADMIN_IDS = [int(x.strip()) for x in os.environ.get("ADMIN_IDS", "").split(",") if x.strip().isdigit()]
 COMMISSION_PERCENT = 10  # 100 पर 10% कमीशन (100 + 90)
 
 logging.basicConfig(level=logging.INFO)
@@ -24,7 +24,7 @@ def run_flask():
     port = int(os.environ.get("PORT", 8080))
     flask_app.run(host="0.0.0.0", port=port)
 
-# --- 3. SQLite Database (ताकि बैलेंस कभी डिलीट न हो) ---
+# --- 3. SQLite Database (बैलेंस सेव रखने के लिए) ---
 conn = sqlite3.connect("ludo_bot.db", check_same_thread=False)
 cursor = conn.cursor()
 cursor.execute("CREATE TABLE IF NOT EXISTS users (user_id INTEGER PRIMARY KEY, name TEXT, balance REAL)")
@@ -54,7 +54,8 @@ def clickable_name(user_id, name):
 
 async def delete_cmd(update: Update):
     try:
-        await update.message.delete()
+        if update.message:
+            await update.message.delete()
     except Exception:
         pass
 
@@ -283,9 +284,9 @@ def main():
         print("ERROR: BOT_TOKEN missing in Render Environment!")
         return
 
-    # Flask को बैकग्राउंड में चालू करना ताकि Render बंद न हो
     threading.Thread(target=run_flask, daemon=True).start()
 
     app = Application.builder().token(BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("add", add_balance))
+    app.add_handler(CommandHandler("minus", minus_balance))
