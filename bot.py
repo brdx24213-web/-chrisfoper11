@@ -3,9 +3,8 @@ from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 from flask import Flask
 import json, os, time, threading, urllib.request
 
-# अगर Render Environment में BOT_TOKEN सही सेव है तो यह अपने आप ले लेगा,
-# वरना नीचे "YOUR_BOT_TOKEN_HERE" की जगह अपना असली टोकन लिख दें:
-BOT_TOKEN = "9115969168:AAEPj8_BPStVjsBaGK_2y4rhFxgEj84ae3w"
+# सुरक्षा के लिए @BotFather से नया टोकन बनाकर नीचे पेस्ट करें
+BOT_TOKEN = "9115969168:AAEPj8_BPStVjsBa0cO72tO01kU3Q-x7kS0"
 ADMIN_ID = 8783427206
 
 bot = telebot.TeleBot(BOT_TOKEN)
@@ -17,13 +16,14 @@ def home():
     return "Bot is running 24/7!"
 
 def keep_alive():
-    url = os.environ.get("RENDER_EXTERNAL_URL", "https://onrender.com")
+    url = os.environ.get("RENDER_EXTERNAL_URL")
     while True:
         time.sleep(600)
-        try:
-            urllib.request.urlopen(url, timeout=10)
-        except Exception:
-            pass
+        if url:
+            try:
+                urllib.request.urlopen(url, timeout=10)
+            except Exception:
+                pass
 
 def load_data():
     if os.path.exists(DATA_FILE):
@@ -79,7 +79,7 @@ def find_user(q):
     if q in users:
         return q
     for uid, info in users.items():
-        if info.get("username", "").lower() == q or info.get("name", "").lower() == q:
+        if info.get("username", "").lower() == q:
             return uid
     return None
 
@@ -100,21 +100,21 @@ def send_pm(uid, text):
 def update_pin(chat_id, force=False):
     cid = str(chat_id)
     lines = ["📊 *PLAYER BALANCE LIST*\n"]
-    sorted_u = sorted(db.get("users", {}).items(), key=lambda x: x[1].get("balance", 0), reverse=True)
+    sorted_u = sorted(db.get("users", {}).items(), key=lambda x: x.get("balance", 0), reverse=True)
     for uid, info in sorted_u:
         bal = info.get("balance", 0)
         hist = info.get("hist", "")
         if bal != 0:
             icon = "🟢" if bal > 0 else "🔴"
             disp = hist if hist else f"{bal}"
-            lines.append(f"{icon} {get_tag(uid)} : {disp}")
+            lines.append(f"{icon} {get_tag(uid)} : *{disp}*")
     if len(lines) == 1:
         lines.append("अभी किसी भी प्लेयर का बैलेंस नहीं है।")
     txt = "\n".join(lines)
     old_id = db.get("pinned_msg", {}).get(cid)
     if old_id and not force:
         try:
-            bot.edit_message_text(txt, chat_id=chat_id, message_id=old_id, parse_mode="Markdown")
+            bot.edit_message_text(txt, chat_id, old_id, parse_mode="Markdown")
             return
         except Exception:
             pass
@@ -141,16 +141,16 @@ def cmd_bal(m):
     bal = db["users"][uid].get("balance", 0)
     tag = get_tag(uid)
     if m.chat.type == "private":
-        bot.reply_to(m, f"👋 नमस्ते {tag}!\n\n💰 आपका वर्तमान बैलेंस: *₹{bal}*", parse_mode="Markdown")
+        bot.reply_to(m, f"👋 नमस्ते {tag}!\n\n💰 आपका वर्तमान बैलेंस: *{bal}*", parse_mode="Markdown")
     else:
-        msg = bot.send_message(m.chat.id, f"💰 {tag} का बैलेंस: *₹{bal}*", parse_mode="Markdown")
-        del_msg(m.chat.id, (m.message_id, msg.message_id), 6)
+        msg = bot.send_message(m.chat.id, f"💰 {tag} का बैलेंस: *{bal}*", parse_mode="Markdown")
+        del_msg(m.chat.id, (m.message_id, msg.message_id))
 
 @bot.message_handler(commands=['list'])
 def cmd_list(m):
     if is_admin(m.from_user.id) and m.chat.type in ["group", "supergroup"]:
         update_pin(m.chat.id, True)
-        del_msg(m.chat.id, (m.message_id,), 2)
+        del_msg(m.chat.id, (m.message_id,))
 
 @bot.message_handler(commands=['add', 'minus'])
 def cmd_add_minus(m):
@@ -188,23 +188,26 @@ def cmd_add_minus(m):
         amt = -amt
     db["users"][t_uid]["balance"] = db["users"][t_uid].get("balance", 0) + amt
     nb = db["users"][t_uid]["balance"]
-    db["users"][t_uid]["hist"] = f"{nb}" if nb != 0 else ""
+    db["users"][t_uid]["hist"] = f"{nb}"
     save_data(db)
     tag = get_tag(t_uid)
     st = f"+{amt}" if amt > 0 else f"{amt}"
-    cm = bot.send_message(m.chat.id, f"✅ {tag} ({st}) | कुल: *₹{nb}*", parse_mode="Markdown")
-    send_pm(t_uid, f"💳 *Balance Updated!*\n\nबदलाव: `{st}`\nनया बैलेंस: *₹{nb}*")
+    cm = bot.send_message(m.chat.id, f"✅ {tag} के खाते में *{st}* अपडेट किया गया।\n💰 नया बैलेंस: *{nb}*", parse_mode="Markdown")
+    send_pm(t_uid, f"💳 *Balance Updated*\n\nबदलाव: *{st}*\nनया बैलेंस: *{nb}*")
     if m.chat.type in ["group", "supergroup"]:
         update_pin(m.chat.id)
-        del_msg(m.chat.id, (m.message_id, cm.message_id), 4)
+        del_msg(m.chat.id, (m.message_id, cm.message_id))
 
-@bot.message_handler(func=lambda m: m.text and is_admin(m.from_user.id) and not m.text.startswith('/'))
+@bot.message_handler(func=lambda m: m.text and "vs" in m.text.lower() and is_admin(m.from_user.id))
 def create_table(m):
-    parts = m.text.strip().split()
+    parts = m.text.split()
+    bef, aft = [], []
     bet = 0
-    bef, aft, found = [], [], False
+    found = False
     for p in parts:
-        if not found and p.isdigit() and int(p) > 0:
+        if p.lower() == "vs":
+            continue
+        if not found and p.isdigit():
             bet = int(p)
             found = True
         elif not found:
@@ -238,40 +241,48 @@ def create_table(m):
     db["tables"][tid] = {"p1": p1, "p2": p2, "bet": bet, "extra": extra, "status": "active"}
     save_data(db)
     ep = f" ({esc(extra)})" if extra else ""
-    txt = f"🎲 *Table No. {tid}*\n\n(1). {get_tag(p1)}\n(2). {get_tag(p2)}\n\n*{bet}* ✅ *BEST ★ OF ★ LUCK* 🎯🎯{ep}"
+    txt = f"🎲 *Table No. {tid}*\n\n(1) {get_tag(p1)}\n🆚\n(2) {get_tag(p2)}\n\n💰 Bet: *{bet}*{ep}"
     mk = InlineKeyboardMarkup()
-    mk.row(InlineKeyboardButton("#win 🏆", callback_data=f"w1_{tid}"), InlineKeyboardButton("#win 🏆", callback_data=f"w2_{tid}"))
-    mk.row(InlineKeyboardButton("cancel this table ❌", callback_data=f"cancel_{tid}"))
+    mk.row(
+        InlineKeyboardButton("Win 1 🏆", callback_data=f"w1_{tid}"),
+        InlineKeyboardButton("Win 2 🏆", callback_data=f"w2_{tid}")
+    )
+    mk.row(InlineKeyboardButton("Cancel ❌", callback_data=f"cancel_{tid}"))
     bot.send_message(m.chat.id, txt, reply_markup=mk, parse_mode="Markdown")
-    del_msg(m.chat.id, (m.message_id,), 2)
+    del_msg(m.chat.id, (m.message_id,))
 
-@bot.callback_query_handler(func=lambda c: c.data.startswith(("w1_", "w2_", "cancel_")))
+@bot.callback_query_handler(func=lambda c: True)
 def handle_btn(c):
     if not is_admin(c.from_user.id):
-        bot.answer_callback_query(c.id, "❌ सिर्फ़ एडमिन ही दबा सकते हैं!", show_alert=True)
+        bot.answer_callback_query(c.id, "केवल एडमिन ही यह कर सकते हैं!", show_alert=True)
         return
     act, tid = c.data.split("_")
     tb = db.get("tables", {}).get(tid)
     if not tb or tb.get("status") != "active":
-        bot.answer_callback_query(c.id, "⚠️ यह टेबल बंद हो चुकी है!", show_alert=True)
+        bot.answer_callback_query(c.id, "यह टेबल पहले ही बंद हो चुकी है!", show_alert=True)
         return
     p1, p2, bet = tb["p1"], tb["p2"], tb["bet"]
-    ep = f" ({esc(tb.get('extra', ''))})" if tb.get("extra") else ""
+    ep = f" ({esc(tb.get('extra', ''))})" if tb.get('extra') else ""
     prof = int(bet * 0.90)
     nt = ""
 
     if act == "w1":
-        ob = db["users"][p1].get("balance", 0)
-        db["users"][p1]["balance"] = ob + prof
-        db["users"][p2]["balance"] = db["users"][p2].get("balance", 0) - bet
-        db["users"][p1]["hist"] = f"{ob}+{prof}" if ob > 0 else f"{bet}+{prof}"
-        db["users"][p2]["hist"] = f"{db['users'][p2]['balance']}"
+        ob1 = db["users"][p1].get("balance", 0)
+        ob2 = db["users"][p2].get("balance", 0)
+        db["users"][p1]["balance"] = ob1 + prof
+        db["users"][p2]["balance"] = ob2 - bet
+        db["users"][p1]["hist"] = f"{ob1}+{prof}={ob1+prof}"
+        db["users"][p2]["hist"] = f"{ob2}-{bet}={ob2-bet}"
         tb["status"] = "win1"
-        nt = f"🎲 *Table No. {tid}*\n\n(1). {get_tag(p1)} ✅\n(2). {get_tag(p2)}\n\n*{bet}* ✅ *BEST ★ OF ★ LUCK* 🎯🎯{ep}"
-        send_pm(p1, f"🏆 बधाई हो! आप Table No. {tid} जीत गए हैं।\n💰 हिसाब: *{bet}+{prof}* (नया बैलेंस: *₹{db['users'][p1]['balance']}*)")
-        send_pm(p2, f"❌ आप Table No. {tid} हार गए हैं।\n💰 नया बैलेंस: *₹{db['users'][p2]['balance']}*")
+        nt = f"🏆 *Table No. {tid} Result*\n\nWinner: {get_tag(p1)} (+{prof})\nLoser: {get_tag(p2)} (-{bet})\n💰 Bet: *{bet}*{ep}"
+        send_pm(p1, f"🏆 बधाई हो! आप Table No. {tid} जीत गए (+{prof})।")
+        send_pm(p2, f"❌ आप Table No. {tid} हार गए (-{bet})।")
 
     elif act == "w2":
-        ob = db["users"][p2].get("balance", 0)
-        db["users"][p2]["balance"] = ob + prof
-        db["users"][p1]["balance"] = db["users"][p1].get("balance", 0) - bet
+        ob1 = db["users"][p1].get("balance", 0)
+        ob2 = db["users"][p2].get("balance", 0)
+        db["users"][p2]["balance"] = ob2 + prof
+        db["users"][p1]["balance"] = ob1 - bet
+        db["users"][p2]["hist"] = f"{ob2}+{prof}={ob2+prof}"
+        db["users"][p1]["hist"] = f"{ob1}-{bet}={ob1-bet}"
+        tb["status"] = "win2"
