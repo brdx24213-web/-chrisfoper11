@@ -6,6 +6,9 @@ import json, os, time, threading, urllib.request
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 ADMIN_ID = 8783427206
 
+if not BOT_TOKEN:
+    raise ValueError("BOT_TOKEN environment variable set nahi hai!")
+
 bot = telebot.TeleBot(BOT_TOKEN)
 app = Flask(__name__)
 DATA_FILE = "bot_data.json"
@@ -98,7 +101,7 @@ def send_pm(uid, text):
 def update_pin(chat_id, force=False):
     cid = str(chat_id)
     lines = ["📊 *PLAYER BALANCE LIST*\n"]
-    sorted_u = sorted(db.get("users", {}).items(), key=lambda x: x.get("balance", 0), reverse=True)
+    sorted_u = sorted(db.get("users", {}).items(), key=lambda x: x[1].get("balance", 0), reverse=True)
     for uid, info in sorted_u:
         bal = info.get("balance", 0)
         hist = info.get("hist", "")
@@ -256,6 +259,8 @@ def handle_btn(c):
     p1, p2, bet = tb["p1"], tb["p2"], tb["bet"]
     ep = f" ({esc(tb.get('extra', ''))})" if tb.get("extra") else ""
     prof = int(bet * 0.90)
+    nt = ""
+
     if act == "w1":
         ob = db["users"][p1].get("balance", 0)
         db["users"][p1]["balance"] = ob + prof
@@ -266,6 +271,7 @@ def handle_btn(c):
         nt = f"🎲 *Table No. {tid}*\n\n(1). {get_tag(p1)} ✅\n(2). {get_tag(p2)}\n\n*{bet}* ✅ *BEST ★ OF ★ LUCK* 🎯🎯{ep}"
         send_pm(p1, f"🏆 बधाई हो! आप Table No. {tid} जीत गए हैं।\n💰 हिसाब: *{bet}+{prof}* (नया बैलेंस: *₹{db['users'][p1]['balance']}*)")
         send_pm(p2, f"❌ आप Table No. {tid} हार गए हैं।\n💰 नया बैलेंस: *₹{db['users'][p2]['balance']}*")
+
     elif act == "w2":
         ob = db["users"][p2].get("balance", 0)
         db["users"][p2]["balance"] = ob + prof
