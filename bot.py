@@ -4,7 +4,7 @@ from flask import Flask
 import json, os, time, threading, urllib.request
 
 # सुरक्षा के लिए @BotFather से नया टोकन बनाकर नीचे पेस्ट करें
-BOT_TOKEN = "9115969168:AAEPj8_BPStVjsBaGK_2y4rhFxgEj84ae3w"
+BOT_TOKEN = "YOUR_NEW_BOT_TOKEN_HERE"
 ADMIN_ID = 8783427206
 
 bot = telebot.TeleBot(BOT_TOKEN)
@@ -100,7 +100,7 @@ def send_pm(uid, text):
 def update_pin(chat_id, force=False):
     cid = str(chat_id)
     lines = ["📊 *PLAYER BALANCE LIST*\n"]
-    sorted_u = sorted(db.get("users", {}).items(), key=lambda x: x.get("balance", 0), reverse=True)
+    sorted_u = sorted(db.get("users", {}).items(), key=lambda x: x[1].get("balance", 0), reverse=True)
     for uid, info in sorted_u:
         bal = info.get("balance", 0)
         hist = info.get("hist", "")
