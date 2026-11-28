@@ -1,13 +1,13 @@
 import telebot
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 from flask import Flask
-import json, os, time, threading
+import json, os, time, threading, urllib.request
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 ADMIN_ID = 8783427206
 
 if not BOT_TOKEN:
-    print("ERROR: BOT_TOKEN nahi mila!")
+    print("ERROR: Render ke Environment Variables mein BOT_TOKEN nahi mila!")
     time.sleep(60)
 
 bot = telebot.TeleBot(BOT_TOKEN)
@@ -17,6 +17,15 @@ DATA_FILE = "bot_data.json"
 @app.route('/')
 def home():
     return "Bot is alive and running 24/7!"
+
+def keep_alive_ping():
+    url = os.environ.get("RENDER_EXTERNAL_URL", "https://chrisfoper11.onrender.com")
+    while True:
+        time.sleep(600)
+        try:
+            urllib.request.urlopen(url, timeout=10)
+        except Exception:
+            pass
 
 def load_data():
     if os.path.exists(DATA_FILE):
@@ -98,7 +107,7 @@ def send_pm(uid, text):
 def update_pinned_list(chat_id, force_new=False):
     cid = str(chat_id)
     lines = ["📊 *PLAYER BALANCE LIST*\n"]
-    sorted_u = sorted(db.get("users", {}).items(), key=lambda x: x[1].get("balance", 0), reverse=True)
+    sorted_u = sorted(db.get("users", {}).items(), key=lambda x: x.get("balance", 0), reverse=True)
     for uid, info in sorted_u:
         bal = info.get("balance", 0)
         hist = info.get("hist", "")
@@ -161,23 +170,23 @@ def cmd_add_minus(message):
     if not is_admin(message.from_user.id):
         return
     parts = message.text.split()
-    cmd = parts[0].lower()
+    cmd = parts.pop(0).lower()
     is_minus = "minus" in cmd
     target_uid = None
     amount = 0
 
-    if message.reply_to_message and len(parts) >= 2:
+    if message.reply_to_message and len(parts) >= 1:
         t = message.reply_to_message.from_user
         target_uid = str(t.id)
         ensure_user(target_uid, t.first_name, t.username)
         try:
-            amount = abs(int(parts[1]))
+            amount = abs(int(parts.pop(0)))
         except Exception:
             return
-    elif len(parts) >= 3:
-        u_query = parts[1]
+    elif len(parts) >= 2:
+        u_query = parts.pop(0)
         try:
-            amount = abs(int(parts[2]))
+            amount = abs(int(parts.pop(0)))
         except Exception:
             return
         f_id, _ = find_user(u_query)
@@ -211,25 +220,30 @@ def cmd_add_minus(message):
 def create_table(message):
     parts = message.text.strip().split()
     bet = 0
-    bet_idx = -1
-    for i, p in enumerate(parts):
-        if p.isdigit() and int(p) > 0:
-            bet = int(p)
-            bet_idx = i
-            break
+    before_parts = []
+    after_parts = []
+    found_bet = False
 
-    if bet <= 0:
+    for p in parts:
+        if not found_bet and p.isdigit() and int(p) > 0:
+            bet = int(p)
+            found_bet = True
+        elif not found_bet:
+            before_parts.append(p)
+        else:
+            after_parts.append(p)
+
+    if not found_bet or bet <= 0:
         return
 
-    extra_msg = " ".join(parts[bet_idx + 1:])
-    before_parts = parts[:bet_idx]
-
+    extra_msg = " ".join(after_parts)
     p1_uid, p2_uid = None, None
+
     if message.reply_to_message and len(before_parts) >= 1:
         u1 = message.reply_to_message.from_user
         p1_uid = str(u1.id)
         ensure_user(p1_uid, u1.first_name, u1.username)
-        q2 = before_parts[0]
+        q2 = before_parts.pop(0)
         f2, _ = find_user(q2)
         if not f2:
             cu = q2.replace("@", "")
@@ -237,7 +251,8 @@ def create_table(message):
             ensure_user(f2, cu, cu)
         p2_uid = f2
     elif len(before_parts) >= 2:
-        q1, q2 = before_parts[0], before_parts[1]
+        q1 = before_parts.pop(0)
+        q2 = before_parts.pop(0)
         f1, _ = find_user(q1)
         if not f1:
             cu1 = q1.replace("@", "")
@@ -292,16 +307,3 @@ def handle_table_buttons(call):
     action, t_id = call.data.split("_")
     table = db.get("tables", {}).get(t_id)
     if not table or table.get("status") != "active":
-        bot.answer_callback_query(call.id, "⚠️ यह टेबल पहले ही बंद हो चुकी है!", show_alert=True)
-        return
-
-    p1, p2, bet = table["p1_uid"], table["p2_uid"], table["bet"]
-    extra_msg = table.get("extra", "")
-    extra_part = f" ({escape_md(extra_msg)})" if extra_msg else ""
-
-    profit = int(bet * 0.90)
-    win_total = bet + profit
-
-    if action == "w1":
-        old_b = db["users"][p1].get("balance", 0)
-        db["users"][p1]["balance"] = old_b + profit
