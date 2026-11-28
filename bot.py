@@ -32,6 +32,14 @@ db = load_data()
 def is_admin(uid):
     return uid == ADMIN_ID
 
+# यूजरनेम या नाम में अंडरस्कोर (_) होने पर Markdown क्रैश से बचाने के लिए
+def escape_md(text):
+    if not text:
+        return ""
+    for ch in ['_', '*', '`', '[']:
+        text = str(text).replace(ch, f'\\{ch}')
+    return text
+
 def delete_later(chat_id, msg_ids, delay=10):
     def task():
         time.sleep(delay)
@@ -70,7 +78,7 @@ def get_tag(uid):
     info = db["users"].get(str(uid), {})
     uname = info.get("username", "")
     name = info.get("name", "Player")
-    return f"@{uname}" if uname else f"[{name}](tg://user?id={uid})"
+    return f"@{escape_md(uname)}" if uname else f"[{escape_md(name)}](tg://user?id={uid})"
 
 def send_pm(uid, text):
     if str(uid).startswith("user_"):
@@ -82,7 +90,7 @@ def send_pm(uid, text):
 
 def update_pinned_list(chat_id):
     cid = str(chat_id)
-    lines = ["📊 **PLAYER BALANCE LIST**\n"]
+    lines = ["📊 *PLAYER BALANCE LIST*\n"]
     sorted_u = sorted(db["users"].items(), key=lambda x: x[1].get("balance", 0), reverse=True)
     for uid, info in sorted_u:
         bal = info.get("balance", 0)
@@ -120,11 +128,11 @@ def check_balance(message):
             del db["users"][tid]
             save_data(db)
     bal = db["users"][uid].get("balance", 0)
-    tag = f"@{uname}" if uname else name
-    txt = f"👋 Hello **{tag}**!\n\n💰 आपका वर्तमान बैलेंस: **₹{bal}**"
+    tag = f"@{escape_md(uname)}" if uname else escape_md(name)
+    txt = f"👋 Hello *{tag}*!\n\n💰 आपका वर्तमान बैलेंस: *₹{bal}*"
     bot.reply_to(message, txt, parse_mode="Markdown")
 
-@bot.message_handler(func=lambda m: is_admin(m.from_user.id) and re.match(r'^(@\w+\s+)?[+-]\d+$', m.text.strip() if m.text else ""))
+@bot.message_handler(func=lambda m: m.text and is_admin(m.from_user.id) and re.match(r'^(@\w+\s+)?[+-]\d+$', m.text.strip()))
 def admin_update_balance(message):
     text = message.text.strip()
     target_uid = None
@@ -151,13 +159,13 @@ def admin_update_balance(message):
     nb = db["users"][target_uid]["balance"]
     save_data(db)
     tag = get_tag(target_uid)
-    c_msg = bot.send_message(message.chat.id, f"✅ {tag} का बैलेंस अपडेट हो गया!\n💰 नया बैलेंस: **₹{nb}**", parse_mode="Markdown")
-    send_pm(target_uid, f"💳 **Balance Updated!**\n\nबदलाव: `{amount:+d}`\nनया बैलेंस: **₹{nb}**")
+    c_msg = bot.send_message(message.chat.id, f"✅ {tag} का बैलेंस अपडेट हो गया!\n💰 नया बैलेंस: *₹{nb}*", parse_mode="Markdown")
+    send_pm(target_uid, f"💳 *Balance Updated!*\n\nबदलाव: `{amount:+d}`\nनया बैलेंस: *₹{nb}*")
     if message.chat.type in ["group", "supergroup"]:
         update_pinned_list(message.chat.id)
         delete_later(message.chat.id, [message.message_id, c_msg.message_id])
 
-@bot.message_handler(func=lambda m: is_admin(m.from_user.id) and m.text)
+@bot.message_handler(func=lambda m: m.text and is_admin(m.from_user.id))
 def create_table(message):
     text = message.text.strip()
     if re.match(r'^(@\w+\s+)?[+-]\d+$', text):
@@ -165,6 +173,8 @@ def create_table(message):
     parts = text.split()
     try:
         bet = int(parts[-1])
+        if bet <= 0:
+            return
     except ValueError:
         return
     p1_uid, p2_uid = None, None
@@ -198,7 +208,7 @@ def create_table(message):
     t_id = str(db["table_count"])
     db["tables"][t_id] = {"p1_uid": p1_uid, "p2_uid": p2_uid, "bet": bet, "status": "active"}
     save_data(db)
-    t_text = f"🎲 **Table No. {t_id}**\n\n(1). {get_tag(p1_uid)}\n(2). {get_tag(p2_uid)}\n\n💰 Bet: **₹{bet}**"
+    t_text = f"🎲 *Table No. {t_id}*\n\n(1). {get_tag(p1_uid)}\n(2). {get_tag(p2_uid)}\n\n💰 Bet: *₹{bet}*"
     mk = InlineKeyboardMarkup()
     mk.row(InlineKeyboardButton("win1 🏆", callback_data=f"w1_{t_id}"), InlineKeyboardButton("win2 🏆", callback_data=f"w2_{t_id}"))
     mk.row(InlineKeyboardButton("cancel ❌", callback_data=f"cancel_{t_id}"))
@@ -222,18 +232,18 @@ def handle_table_buttons(call):
     if action == "w1":
         db["users"][p1]["balance"] = db["users"][p1].get("balance", 0) + win_amt
         table["status"] = "win1"
-        nt = f"🎲 **Table No. {t_id}**\n\n(1). {get_tag(p1)} 🏆 (Winner)\n(2). {get_tag(p2)}\n\n💰 Win Amount: **₹{win_amt}**"
-        send_pm(p1, f"🏆 बधाई हो! आप Table #{t_id} जीत गए हैं।\n💰 आपको **₹{win_amt}** मिले हैं।")
+        nt = f"🎲 *Table No. {t_id}*\n\n(1). {get_tag(p1)} 🏆 (Winner)\n(2). {get_tag(p2)}\n\n💰 Win Amount: *₹{win_amt}*"
+        send_pm(p1, f"🏆 बधाई हो! आप Table #{t_id} जीत गए हैं।\n💰 आपको *₹{win_amt}* मिले हैं।")
     elif action == "w2":
         db["users"][p2]["balance"] = db["users"][p2].get("balance", 0) + win_amt
         table["status"] = "win2"
-        nt = f"🎲 **Table No. {t_id}**\n\n(1). {get_tag(p1)}\n(2). {get_tag(p2)} 🏆 (Winner)\n\n💰 Win Amount: **₹{win_amt}**"
-        send_pm(p2, f"🏆 बधाई हो! आप Table #{t_id} जीत गए हैं।\n💰 आपको **₹{win_amt}** मिले हैं।")
+        nt = f"🎲 *Table No. {t_id}*\n\n(1). {get_tag(p1)}\n(2). {get_tag(p2)} 🏆 (Winner)\n\n💰 Win Amount: *₹{win_amt}*"
+        send_pm(p2, f"🏆 बधाई हो! आप Table #{t_id} जीत गए हैं।\n💰 आपको *₹{win_amt}* मिले हैं।")
     else:
         db["users"][p1]["balance"] = db["users"][p1].get("balance", 0) + bet
         db["users"][p2]["balance"] = db["users"][p2].get("balance", 0) + bet
         table["status"] = "cancelled"
-        nt = f"❌ **Table No. {t_id}**\n\nयह टेबल कैंसिल कर दी गई है और दोनों प्लेयर्स का बैलेंस वापस कर दिया गया है।"
+        nt = f"❌ *Table No. {t_id}*\n\nयह टेबल कैंसिल कर दी गई है और दोनों प्लेयर्स का बैलेंस वापस कर दिया गया है।"
     save_data(db)
     bot.edit_message_text(nt, chat_id=call.message.chat.id, message_id=call.message.message_id, parse_mode="Markdown")
     update_pinned_list(call.message.chat.id)
@@ -250,13 +260,3 @@ def register_user(message):
             ensure_user(uid, message.from_user.first_name, uname)
             db["users"][uid]["balance"] += tb
             del db["users"][tid]
-            save_data(db)
-        else:
-            ensure_user(uid, message.from_user.first_name, uname)
-
-def run_flask():
-    port = int(os.environ.get("PORT", 8080))
-    app.run(host="0.0.0.0", port=port)
-
-if __name__ == "__main__":
-    t = threading.Thread(target=run_flask)
