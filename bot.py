@@ -7,8 +7,14 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
 
 # --- 1. Render Environment Variables ---
-BOT_TOKEN = os.environ.get("BOT_TOKEN")
-ADMIN_IDS = [int(x.strip()) for x in os.environ.get("ADMIN_IDS", "").split(",") if x.strip().isdigit()]
+BOT_TOKEN = os.environ.get("BOT_TOKEN", "").strip()
+raw_admins = os.environ.get("ADMIN_IDS", "")
+ADMIN_IDS = []
+for item in raw_admins.split(","):
+    clean_item = item.strip()
+    if clean_item.isdigit():
+        ADMIN_IDS.append(int(clean_item))
+
 COMMISSION_PERCENT = 10  # 100 पर 10% कमीशन (100 + 90)
 
 logging.basicConfig(level=logging.INFO)
@@ -24,7 +30,7 @@ def run_flask():
     port = int(os.environ.get("PORT", 8080))
     flask_app.run(host="0.0.0.0", port=port)
 
-# --- 3. SQLite Database (बैलेंस सेव रखने के लिए) ---
+# --- 3. SQLite Database ---
 conn = sqlite3.connect("ludo_bot.db", check_same_thread=False)
 cursor = conn.cursor()
 cursor.execute("CREATE TABLE IF NOT EXISTS users (user_id INTEGER PRIMARY KEY, name TEXT, balance REAL)")
@@ -33,7 +39,10 @@ conn.commit()
 def get_user_balance(user_id):
     cursor.execute("SELECT balance FROM users WHERE user_id=?", (user_id,))
     row = cursor.fetchone()
-    return row[0] if row else 0.0
+    if row is not None:
+        for val in row:
+            return float(val)
+    return 0.0
 
 def update_user_db(user_id, name, new_balance):
     cursor.execute("INSERT OR REPLACE INTO users (user_id, name, balance) VALUES (?, ?, ?)", (user_id, name, new_balance))
@@ -75,17 +84,21 @@ async def update_and_pin_list(context: ContextTypes.DEFAULT_TYPE, chat_id: int):
         return
     
     lines = ["📊 <b>LIVE BALANCE LIST</b> 📊\n"]
-    for idx, (uid, name, bal) in enumerate(users, start=1):
+    idx = 1
+    for uid, name, bal in users:
         lines.append(f"{idx}. {clickable_name(uid, name)} -- <b>₹{bal:.2f}</b>")
+        idx += 1
         
     lines.append(f"\n👥 <b>Total Members: {len(users)}</b>")
     text = "\n".join(lines)
     
-    keyboard = [[InlineKeyboardButton("💰 CHECK YOUR BALANCE", callback_data="check_bal")]]
+    keyboard = InlineKeyboardMarkup.from_button(
+        InlineKeyboardButton("💰 CHECK YOUR BALANCE", callback_data="check_bal")
+    )
     msg = await context.bot.send_message(
         chat_id=chat_id,
         text=text,
-        reply_markup=InlineKeyboardMarkup(keyboard),
+        reply_markup=keyboard,
         parse_mode="HTML"
     )
     try:
@@ -99,9 +112,14 @@ async def add_balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     
     target = update.message.reply_to_message.from_user
-    try:
-        amount = float(context.args[0])
-    except ValueError:
+    amount = None
+    for arg in context.args:
+        try:
+            amount = float(arg)
+            break
+        except ValueError:
+            continue
+    if amount is None:
         return
     
     new_bal = get_user_balance(target.id) + amount
@@ -130,9 +148,14 @@ async def minus_balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     
     target = update.message.reply_to_message.from_user
-    try:
-        amount = float(context.args[0])
-    except ValueError:
+    amount = None
+    for arg in context.args:
+        try:
+            amount = float(arg)
+            break
+        except ValueError:
+            continue
+    if amount is None:
         return
     
     new_bal = max(0.0, get_user_balance(target.id) - amount)
@@ -151,15 +174,32 @@ async def create_table(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin(update.effective_user.id):
         return
 
-    mentions = [ent for ent in update.message.entities if ent.type == "text_mention"]
-    if len(mentions) < 2 or not context.args:
+    mentioned_users = []
+    if update.message.entities:
+        for ent in update.message.entities:
+            if ent.type == "text_mention" and ent.user:
+                mentioned_users.append(ent.user)
+                
+    if len(mentioned_users) < 2 or not context.args:
         return
 
-    p1 = mentions[0].user
-    p2 = mentions[1].user
-    try:
-        amount = float(context.args[-1])
-    except ValueError:
+    p1 = None
+    p2 = None
+    for u in mentioned_users:
+        if p1 is None:
+            p1 = u
+        elif p2 is None:
+            p2 = u
+            break
+
+    amount = None
+    for arg in reversed(context.args):
+        try:
+            amount = float(arg)
+            break
+        except ValueError:
+            continue
+    if amount is None:
         return
 
     update_user_db(p1.id, p1.first_name, get_user_balance(p1.id) - amount)
@@ -181,20 +221,14 @@ async def create_table(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"<b>{int(amount)}</b> ✅ 𝗕𝗘𝗦𝗧 ★ 𝗢𝗙 ★𝗟𝗨𝗖𝗞 🎯🎯"
     )
 
-    keyboard = [
-        [
-            InlineKeyboardButton("#win 🏆", callback_data=f"win_{t_id}_1"),
-            InlineKeyboardButton("#win 🏆", callback_data=f"win_{t_id}_2")
-        ],
-        [
-            InlineKeyboardButton("Cancel this table ❌", callback_data=f"cancel_{t_id}")
-        ]
-    ]
+    row1 = (InlineKeyboardButton("#win 🏆", callback_data=f"win_{t_id}_1"), InlineKeyboardButton("#win 🏆", callback_data=f"win_{t_id}_2"))
+    row2 = (InlineKeyboardButton("Cancel this table ❌", callback_data=f"cancel_{t_id}"),)
+    keyboard = InlineKeyboardMarkup((row1, row2))
 
     await context.bot.send_message(
         chat_id=update.effective_chat.id,
         text=table_text,
-        reply_markup=InlineKeyboardMarkup(keyboard),
+        reply_markup=keyboard,
         parse_mode="HTML"
     )
 
@@ -212,8 +246,19 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     parts = query.data.split("_")
-    action = parts[0]
-    t_id = int(parts[1])
+    action = ""
+    t_id = 0
+    winner_num = 0
+    step = 0
+    for part in parts:
+        if step == 0:
+            action = part
+        elif step == 1:
+            t_id = int(part)
+        elif step == 2:
+            winner_num = int(part)
+        step += 1
+
     table = tables.get(t_id)
 
     if not table or table["status"] != "active":
@@ -225,7 +270,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     amt = table["amount"]
 
     if action == "win":
-        winner_num = int(parts[2])
         table["status"] = "completed"
 
         win_profit = amt * (1 - COMMISSION_PERCENT / 100)
@@ -266,27 +310,3 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         await update_and_pin_list(context, update.effective_chat.id)
 
-    elif action == "cancel":
-        table["status"] = "cancelled"
-        update_user_db(table["p1_id"], table["p1_name"], get_user_balance(table["p1_id"]) + amt)
-        update_user_db(table["p2_id"], table["p2_name"], get_user_balance(table["p2_id"]) + amt)
-
-        cancel_text = (
-            f"🎲 <b>𝑻𝒂𝒃𝒍𝒆 𝑵𝒐. {t_id}</b>\n\n"
-            f"(1). {p1_link} ❌❌\n\n"
-            f"(2). {p2_link} ❌❌\n\n"
-            f"<b>{int(amt)}</b> ❌ 𝗧𝗔𝗕𝗟𝗘 𝗖𝗔𝗡𝗖𝗘𝗟𝗟𝗘𝗗"
-        )
-        await query.edit_message_text(text=cancel_text, parse_mode="HTML")
-
-def main():
-    if not BOT_TOKEN:
-        print("ERROR: BOT_TOKEN missing in Render Environment!")
-        return
-
-    threading.Thread(target=run_flask, daemon=True).start()
-
-    app = Application.builder().token(BOT_TOKEN).build()
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("add", add_balance))
-    app.add_handler(CommandHandler("minus", minus_balance))
