@@ -1,7 +1,9 @@
 import os
+import time
 import sqlite3
 import threading
 import logging
+import traceback
 from flask import Flask
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
@@ -30,7 +32,7 @@ def run_flask():
     port = int(os.environ.get("PORT", 8080))
     flask_app.run(host="0.0.0.0", port=port)
 
-# --- 3. SQLite Database ---
+# --- 3. SQLite Database (बैलेंस सेव रखने के लिए) ---
 conn = sqlite3.connect("ludo_bot.db", check_same_thread=False)
 cursor = conn.cursor()
 cursor.execute("CREATE TABLE IF NOT EXISTS users (user_id INTEGER PRIMARY KEY, name TEXT, balance REAL)")
@@ -310,3 +312,4 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         await update_and_pin_list(context, update.effective_chat.id)
 
+    elif action == "cancel":
