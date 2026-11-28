@@ -5,7 +5,7 @@ import json, os, time, threading, urllib.request
 
 # अगर Render Environment में BOT_TOKEN सही सेव है तो यह अपने आप ले लेगा,
 # वरना नीचे "YOUR_BOT_TOKEN_HERE" की जगह अपना असली टोकन लिख दें:
-BOT_TOKEN = (os.getenv("9115969168:AAEPj8_BPStVjsBaGK_2y4rhFxgEj84ae3w")
+BOT_TOKEN = (os.getenv"9115969168:AAEPj8_BPStVjsBaGK_2y4rhFxgEj84ae3w"
 ADMIN_ID = 8783427206
 
 bot = telebot.TeleBot(BOT_TOKEN)
