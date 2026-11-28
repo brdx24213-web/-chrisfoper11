@@ -1,288 +1,284 @@
-import telebot
-from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
-from flask import Flask
-import json, os, time, threading, urllib.request
+import logging
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
 
-# सुरक्षा के लिए @BotFather से नया टोकन बनाकर नीचे पेस्ट करें
-BOT_TOKEN = "9115969168:AAEPj8_BPStVjsBaGK_2y4rhFxgEj84ae3w"
-ADMIN_ID = 8783427206
+# --- अपनी डिटेल्स यहाँ डालें ---
+BOT_TOKEN = "YOUR_BOT_TOKEN_HERE"
+ADMIN_IDS = [123456789, 987654321]  # यहाँ अपनी और एडमिन की Telegram User ID डालें
+COMMISSION_PERCENT = 10  # 100 पर 10% कमीशन कटेगा (यानी 100+90 मिलेगा)
 
-bot = telebot.TeleBot(BOT_TOKEN)
-app = Flask(__name__)
-DATA_FILE = "bot_data.json"
+# डेटाबेस (बैलेंस और टेबल स्टोर करने के लिए)
+user_balances = {}
+user_names = {}
+tables = {}
+table_counter = 0
 
-@app.route('/')
-def home():
-    return "Bot is running 24/7!"
+logging.basicConfig(level=logging.INFO)
 
-def keep_alive():
-    url = os.environ.get("RENDER_EXTERNAL_URL")
-    while True:
-        time.sleep(600)
-        if url:
-            try:
-                urllib.request.urlopen(url, timeout=10)
-            except Exception:
-                pass
+def is_admin(user_id):
+    return user_id in ADMIN_IDS
 
-def load_data():
-    if os.path.exists(DATA_FILE):
-        try:
-            with open(DATA_FILE, "r") as f:
-                return json.load(f)
-        except Exception:
-            pass
-    return {"users": {}, "tables": {}, "pinned_msg": {}, "table_count": 0}
+# क्लिकेबल नाम बनाने का फंक्शन (क्लिक करने पर ID खुलेगी)
+def clickable_name(user_id, name):
+    return f'<a href="tg://user?id={user_id}">{name}</a>'
 
-def save_data(data):
-    with open(DATA_FILE, "w") as f:
-        json.dump(data, f, indent=4)
-
-db = load_data()
-
-def is_admin(uid):
-    return uid == ADMIN_ID
-
-def esc(text):
-    if not text:
-        return ""
-    s = str(text)
-    for c in ('_', '*', '`', '['):
-        s = s.replace(c, '\\' + c)
-    return s
-
-def del_msg(chat_id, mids, delay=5):
-    def task():
-        time.sleep(delay)
-        for m in mids:
-            try:
-                bot.delete_message(chat_id, m)
-            except Exception:
-                pass
-    threading.Thread(target=task, daemon=True).start()
-
-def ensure_user(uid, name, uname=""):
-    uid = str(uid)
-    users = db.setdefault("users", {})
-    if uid not in users:
-        users[uid] = {"name": name or "Player", "username": uname or "", "balance": 0, "hist": ""}
-    else:
-        if name:
-            users[uid]["name"] = name
-        if uname:
-            users[uid]["username"] = uname
-    save_data(db)
-
-def find_user(q):
-    q = q.replace("@", "").strip().lower()
-    users = db.get("users", {})
-    if q in users:
-        return q
-    for uid, info in users.items():
-        if info.get("username", "").lower() == q:
-            return uid
-    return None
-
-def get_tag(uid):
-    info = db.get("users", {}).get(str(uid), {})
-    u = info.get("username", "")
-    n = info.get("name", "Player")
-    return f"@{esc(u)}" if u else f"[{esc(n)}](tg://user?id={uid})"
-
-def send_pm(uid, text):
-    if str(uid).startswith("user_"):
-        return
+# कमांड मैसेज को तुरंत डिलीट करने का फंक्शन
+async def delete_cmd(update: Update):
     try:
-        bot.send_message(int(uid), text, parse_mode="Markdown")
+        await update.message.delete()
     except Exception:
         pass
 
-def update_pin(chat_id, force=False):
-    cid = str(chat_id)
-    lines = ["📊 *PLAYER BALANCE LIST*\n"]
-    sorted_u = sorted(db.get("users", {}).items(), key=lambda x: x[1].get("balance", 0), reverse=True)
-    for uid, info in sorted_u:
-        bal = info.get("balance", 0)
-        hist = info.get("hist", "")
-        if bal != 0:
-            icon = "🟢" if bal > 0 else "🔴"
-            disp = hist if hist else f"{bal}"
-            lines.append(f"{icon} {get_tag(uid)} : *{disp}*")
-    if len(lines) == 1:
-        lines.append("अभी किसी भी प्लेयर का बैलेंस नहीं है।")
-    txt = "\n".join(lines)
-    old_id = db.get("pinned_msg", {}).get(cid)
-    if old_id and not force:
-        try:
-            bot.edit_message_text(txt, chat_id, old_id, parse_mode="Markdown")
-            return
-        except Exception:
-            pass
-    try:
-        sent = bot.send_message(chat_id, txt, parse_mode="Markdown")
-        db.setdefault("pinned_msg", {})[cid] = sent.message_id
-        save_data(db)
-        bot.pin_chat_message(chat_id, sent.message_id, disable_notification=True)
-    except Exception:
-        pass
-
-@bot.message_handler(commands=['start', 'bal', 'balance'])
-def cmd_bal(m):
-    uid = str(m.from_user.id)
-    uname = m.from_user.username
-    ensure_user(uid, m.from_user.first_name, uname)
-    if uname:
-        tid = f"user_{uname.lower()}"
-        if tid in db["users"]:
-            db["users"][uid]["balance"] += db["users"][tid].get("balance", 0)
-            db["users"][uid]["hist"] = db["users"][tid].get("hist", "")
-            del db["users"][tid]
-            save_data(db)
-    bal = db["users"][uid].get("balance", 0)
-    tag = get_tag(uid)
-    if m.chat.type == "private":
-        bot.reply_to(m, f"👋 नमस्ते {tag}!\n\n💰 आपका वर्तमान बैलेंस: *{bal}*", parse_mode="Markdown")
-    else:
-        msg = bot.send_message(m.chat.id, f"💰 {tag} का बैलेंस: *{bal}*", parse_mode="Markdown")
-        del_msg(m.chat.id, (m.message_id, msg.message_id))
-
-@bot.message_handler(commands=['list'])
-def cmd_list(m):
-    if is_admin(m.from_user.id) and m.chat.type in ["group", "supergroup"]:
-        update_pin(m.chat.id, True)
-        del_msg(m.chat.id, (m.message_id,))
-
-@bot.message_handler(commands=['add', 'minus'])
-def cmd_add_minus(m):
-    if not is_admin(m.from_user.id):
-        return
-    parts = m.text.split()
-    cmd = parts.pop(0).lower()
-    is_min = "minus" in cmd
-    t_uid = None
-    amt = 0
-    if m.reply_to_message and len(parts) >= 1:
-        t = m.reply_to_message.from_user
-        t_uid = str(t.id)
-        ensure_user(t_uid, t.first_name, t.username)
-        try:
-            amt = abs(int(parts.pop(0)))
-        except Exception:
-            return
-    elif len(parts) >= 2:
-        uq = parts.pop(0)
-        try:
-            amt = abs(int(parts.pop(0)))
-        except Exception:
-            return
-        fid = find_user(uq)
-        if fid:
-            t_uid = fid
-        else:
-            cu = uq.replace("@", "")
-            t_uid = f"user_{cu.lower()}"
-            ensure_user(t_uid, cu, cu)
-    else:
-        return
-    if is_min:
-        amt = -amt
-    db["users"][t_uid]["balance"] = db["users"][t_uid].get("balance", 0) + amt
-    nb = db["users"][t_uid]["balance"]
-    db["users"][t_uid]["hist"] = f"{nb}"
-    save_data(db)
-    tag = get_tag(t_uid)
-    st = f"+{amt}" if amt > 0 else f"{amt}"
-    cm = bot.send_message(m.chat.id, f"✅ {tag} के खाते में *{st}* अपडेट किया गया।\n💰 नया बैलेंस: *{nb}*", parse_mode="Markdown")
-    send_pm(t_uid, f"💳 *Balance Updated*\n\nबदलाव: *{st}*\nनया बैलेंस: *{nb}*")
-    if m.chat.type in ["group", "supergroup"]:
-        update_pin(m.chat.id)
-        del_msg(m.chat.id, (m.message_id, cm.message_id))
-
-@bot.message_handler(func=lambda m: m.text and "vs" in m.text.lower() and is_admin(m.from_user.id))
-def create_table(m):
-    parts = m.text.split()
-    bef, aft = [], []
-    bet = 0
-    found = False
-    for p in parts:
-        if p.lower() == "vs":
-            continue
-        if not found and p.isdigit():
-            bet = int(p)
-            found = True
-        elif not found:
-            bef.append(p)
-        else:
-            aft.append(p)
-    if not found or bet <= 0:
-        return
-    extra = " ".join(aft)
-    p1, p2 = None, None
-    if m.reply_to_message and len(bef) >= 1:
-        u1 = m.reply_to_message.from_user
-        p1 = str(u1.id)
-        ensure_user(p1, u1.first_name, u1.username)
-        q2 = bef.pop(0)
-        p2 = find_user(q2) or f"user_{q2.replace('@', '').lower()}"
-        if p2.startswith("user_"):
-            ensure_user(p2, q2.replace("@", ""), q2.replace("@", ""))
-    elif len(bef) >= 2:
-        q1, q2 = bef.pop(0), bef.pop(0)
-        p1 = find_user(q1) or f"user_{q1.replace('@', '').lower()}"
-        if p1.startswith("user_"):
-            ensure_user(p1, q1.replace("@", ""), q1.replace("@", ""))
-        p2 = find_user(q2) or f"user_{q2.replace('@', '').lower()}"
-        if p2.startswith("user_"):
-            ensure_user(p2, q2.replace("@", ""), q2.replace("@", ""))
-    else:
-        return
-    db["table_count"] = db.get("table_count", 0) + 1
-    tid = str(db["table_count"])
-    db["tables"][tid] = {"p1": p1, "p2": p2, "bet": bet, "extra": extra, "status": "active"}
-    save_data(db)
-    ep = f" ({esc(extra)})" if extra else ""
-    txt = f"🎲 *Table No. {tid}*\n\n(1) {get_tag(p1)}\n🆚\n(2) {get_tag(p2)}\n\n💰 Bet: *{bet}*{ep}"
-    mk = InlineKeyboardMarkup()
-    mk.row(
-        InlineKeyboardButton("Win 1 🏆", callback_data=f"w1_{tid}"),
-        InlineKeyboardButton("Win 2 🏆", callback_data=f"w2_{tid}")
+# 1. /start कमांड (ताकि यूजर को पर्सनल मैसेज जा सके)
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    user_names[user.id] = user.first_name
+    if user.id not in user_balances:
+        user_balances[user.id] = 0.0
+    await update.message.reply_text(
+        f"🙏 स्वागत है <b>{user.first_name}</b>!\nआपका अकाउंट एक्टिव है। अब आपको सभी गेम और बैलेंस अपडेट यहाँ पर्सनल में मिलेंगे।",
+        parse_mode="HTML"
     )
-    mk.row(InlineKeyboardButton("Cancel ❌", callback_data=f"cancel_{tid}"))
-    bot.send_message(m.chat.id, txt, reply_markup=mk, parse_mode="Markdown")
-    del_msg(m.chat.id, (m.message_id,))
 
-@bot.callback_query_handler(func=lambda c: True)
-def handle_btn(c):
-    if not is_admin(c.from_user.id):
-        bot.answer_callback_query(c.id, "केवल एडमिन ही यह कर सकते हैं!", show_alert=True)
+# 2. बैलेंस लिस्ट जनरेट करना और पिन करना
+async def update_and_pin_list(context: ContextTypes.DEFAULT_TYPE, chat_id: int):
+    if not user_balances:
         return
-    act, tid = c.data.split("_")
-    tb = db.get("tables", {}).get(tid)
-    if not tb or tb.get("status") != "active":
-        bot.answer_callback_query(c.id, "यह टेबल पहले ही बंद हो चुकी है!", show_alert=True)
+    
+    # बैलेंस के घटते क्रम में लिस्ट बनाना
+    sorted_users = sorted(user_balances.items(), key=lambda x: x[1], reverse=True)
+    lines = ["📊 <b>LIVE BALANCE LIST</b> 📊\n"]
+    
+    for idx, (uid, bal) in enumerate(sorted_users, start=1):
+        name = user_names.get(uid, f"Player {uid}")
+        lines.append(f"{idx}. {clickable_name(uid, name)} -- <b>₹{bal:.2f}</b>")
+        
+    lines.append(f"\n👥 <b>Total Members: {len(sorted_users)}</b>")
+    text = "\n".join(lines)
+    
+    keyboard = [[InlineKeyboardButton("💰 CHECK YOUR BALANCE", callback_data="check_bal")]]
+    msg = await context.bot.send_message(
+        chat_id=chat_id,
+        text=text,
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        parse_mode="HTML"
+    )
+    try:
+        await context.bot.pin_chat_message(chat_id=chat_id, message_id=msg.message_id, disable_notification=True)
+    except Exception:
+        pass
+
+# 3. /add कमांड (उदाहरण: किसी के मैसेज पर रिप्लाई करके /add 500 लिखें)
+async def add_balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await delete_cmd(update)
+    if not is_admin(update.effective_user.id):
         return
-    p1, p2, bet = tb["p1"], tb["p2"], tb["bet"]
-    ep = f" ({esc(tb.get('extra', ''))})" if tb.get('extra') else ""
-    prof = int(bet * 0.90)
-    nt = ""
+    
+    if not update.message.reply_to_message or not context.args:
+        return
+    
+    target = update.message.reply_to_message.from_user
+    amount = float(context.args[0])
+    
+    user_names[target.id] = target.first_name
+    user_balances[target.id] = user_balances.get(target.id, 0.0) + amount
+    
+    # पर्सनल में अपडेट भेजना
+    try:
+        await context.bot.send_message(
+            chat_id=target.id,
+            text=(
+                f"💳 <b>BALANCE ADDED</b>\n"
+                f"━━━━━━━━━━━━━━━\n"
+                f"1️⃣ <b>Add Amount:</b> +₹{amount:.2f}\n"
+                f"2️⃣ <b>Total Balance:</b> ₹{user_balances[target.id]:.2f}\n"
+                f"━━━━━━━━━━━━━━━"
+            ),
+            parse_mode="HTML"
+        )
+    except Exception:
+        pass
+        
+    await update_and_pin_list(context, update.effective_chat.id)
 
-    if act == "w1":
-        ob1 = db["users"][p1].get("balance", 0)
-        ob2 = db["users"][p2].get("balance", 0)
-        db["users"][p1]["balance"] = ob1 + prof
-        db["users"][p2]["balance"] = ob2 - bet
-        db["users"][p1]["hist"] = f"{ob1}+{prof}={ob1+prof}"
-        db["users"][p2]["hist"] = f"{ob2}-{bet}={ob2-bet}"
-        tb["status"] = "win1"
-        nt = f"🏆 *Table No. {tid} Result*\n\nWinner: {get_tag(p1)} (+{prof})\nLoser: {get_tag(p2)} (-{bet})\n💰 Bet: *{bet}*{ep}"
-        send_pm(p1, f"🏆 बधाई हो! आप Table No. {tid} जीत गए (+{prof})।")
-        send_pm(p2, f"❌ आप Table No. {tid} हार गए (-{bet})।")
+# 4. /minus कमांड (रिप्लाई करके /minus 200 लिखें)
+async def minus_balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await delete_cmd(update)
+    if not is_admin(update.effective_user.id):
+        return
+    
+    if not update.message.reply_to_message or not context.args:
+        return
+    
+    target = update.message.reply_to_message.from_user
+    amount = float(context.args[0])
+    
+    user_names[target.id] = target.first_name
+    user_balances[target.id] = max(0.0, user_balances.get(target.id, 0.0) - amount)
+    await update_and_pin_list(context, update.effective_chat.id)
 
-    elif act == "w2":
-        ob1 = db["users"][p1].get("balance", 0)
-        ob2 = db["users"][p2].get("balance", 0)
-        db["users"][p2]["balance"] = ob2 + prof
-        db["users"][p1]["balance"] = ob1 - bet
-        db["users"][p2]["hist"] = f"{ob2}+{prof}={ob2+prof}"
-        db["users"][p1]["hist"] = f"{ob1}-{bet}={ob1-bet}"
-        tb["status"] = "win2"
+# 5. /list और /pin कमांड
+async def list_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await delete_cmd(update)
+    if is_admin(update.effective_user.id):
+        await update_and_pin_list(context, update.effective_chat.id)
+
+# 6. /table कमांड (उदाहरण: /table @user1 @user2 250)
+async def create_table(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    global table_counter
+    await delete_cmd(update)  # टेबल लगाने वाला कमांड मैसेज डिलीट होगा, टेबल नहीं
+    
+    if not is_admin(update.effective_user.id):
+        return
+
+    # मेंशन किए गए दोनों यूजर निकालना
+    mentions = [ent for ent in update.message.entities if ent.type == "text_mention"]
+    if len(mentions) < 2 or not context.args:
+        return
+
+    p1 = mentions[0].user
+    p2 = mentions[1].user
+    try:
+        amount = float(context.args[-1])
+    except ValueError:
+        return
+
+    user_names[p1.id] = p1.first_name
+    user_names[p2.id] = p2.first_name
+    
+    # दोनों के वॉलेट से एंट्री फीस काटना
+    user_balances[p1.id] = user_balances.get(p1.id, 0.0) - amount
+    user_balances[p2.id] = user_balances.get(p2.id, 0.0) - amount
+
+    table_counter += 1
+    t_id = table_counter
+    tables[t_id] = {
+        "p1_id": p1.id, "p1_name": p1.first_name,
+        "p2_id": p2.id, "p2_name": p2.first_name,
+        "amount": amount,
+        "status": "active"
+    }
+
+    table_text = (
+        f"🎲 <b>𝑻𝒂𝒃𝒍𝒆 𝑵𝒐. {t_id}</b>\n\n"
+        f"(1). {clickable_name(p1.id, p1.first_name)}\n\n"
+        f"(2). {clickable_name(p2.id, p2.first_name)}\n\n"
+        f"<b>{int(amount)}</b> ✅ 𝗕𝗘𝗦𝗧 ★ 𝗢𝗙 ★𝗟𝗨𝗖𝗞 🎯🎯"
+    )
+
+    # बिना नाम वाले बटन
+    keyboard = [
+        [
+            InlineKeyboardButton("#win 🏆", callback_data=f"win_{t_id}_1"),
+            InlineKeyboardButton("#win 🏆", callback_data=f"win_{t_id}_2")
+        ],
+        [
+            InlineKeyboardButton("Cancel this table ❌", callback_data=f"cancel_{t_id}")
+        ]
+    ]
+
+    await context.bot.send_message(
+        chat_id=update.effective_chat.id,
+        text=table_text,
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        parse_mode="HTML"
+    )
+
+# 7. बटन हैंडलिंग (#win और Cancel)
+async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    user_id = query.from_user.id
+
+    # बैलेंस चेक बटन सबके लिए
+    if query.data == "check_bal":
+        bal = user_balances.get(user_id, 0.0)
+        await query.answer(f"💰 आपका वर्तमान बैलेंस: ₹{bal:.2f}", show_alert=True)
+        return
+
+    # बाकी बटन सिर्फ Admin दबा सकता है
+    if not is_admin(user_id):
+        await query.answer("❌ यह बटन सिर्फ एडमिन के लिए है!", show_alert=True)
+        return
+
+    parts = query.data.split("_")
+    action = parts[0]
+    t_id = int(parts[1])
+    table = tables.get(t_id)
+
+    if not table or table["status"] != "active":
+        await query.answer("⚠️ यह टेबल पहले ही अपडेट हो चुकी है।", show_alert=True)
+        return
+
+    p1_link = clickable_name(table["p1_id"], table["p1_name"])
+    p2_link = clickable_name(table["p2_id"], table["p2_name"])
+    amt = table["amount"]
+
+    if action == "win":
+        winner_num = int(parts[2])
+        table["status"] = "completed"
+
+        win_profit = amt * (1 - COMMISSION_PERCENT / 100)  # 100 का 90 बनेगा
+        total_return = amt + win_profit  # 100 + 90 = 190
+
+        if winner_num == 1:
+            win_id, win_name = table["p1_id"], table["p1_name"]
+            p1_display = f"{p1_link} ✅"
+            p2_display = p2_link
+        else:
+            win_id, win_name = table["p2_id"], table["p2_name"]
+            p1_display = p1_link
+            p2_display = f"{p2_link} ✅"
+
+        user_balances[win_id] = user_balances.get(win_id, 0.0) + total_return
+
+        # टेबल एडिट करके जीतने वाले के आगे ✅ लगाना
+        new_text = (
+            f"🎲 <b>𝑻𝒂𝒃𝒍𝒆 𝑵𝒐. {t_id}</b>\n\n"
+            f"(1). {p1_display}\n\n"
+            f"(2). {p2_display}\n\n"
+            f"<b>{int(amt)}</b> ✅ 𝗕𝗘𝗦𝗧 ★ 𝗢𝗙 ★𝗟𝗨𝗖𝗞 🎯🎯"
+        )
+        await query.edit_message_text(text=new_text, parse_mode="HTML")
+
+        # विजेता को पर्सनल में सुंदर डिजाइन और नंबरिंग के साथ अपडेट भेजना
+        personal_msg = (
+            f"🏆 <b>CONGRATULATIONS {win_name}!</b> 🏆\n"
+            f"━━━━━━━━━━━━━━━━━━\n"
+            f"1️⃣ <b>Table No:</b> #{t_id}\n"
+            f"2️⃣ <b>Match Bet:</b> ₹{int(amt)}\n"
+            f"3️⃣ <b>Win Profit:</b> ₹{int(win_profit)} (Commission Cut)\n"
+            f"4️⃣ <b>Total Credited:</b> ₹{int(total_return)} ({int(amt)}+{int(win_profit)})\n"
+            f"5️⃣ <b>New Balance:</b> ₹{user_balances[win_id]:.2f}\n"
+            f"━━━━━━━━━━━━━━━━━━"
+        )
+        try:
+            await context.bot.send_message(chat_id=win_id, text=personal_msg, parse_mode="HTML")
+        except Exception:
+            pass
+
+        # ग्रुप में नई बैलेंस लिस्ट अपडेट और पिन करना
+        await update_and_pin_list(context, update.effective_chat.id)
+
+    elif action == "cancel":
+        table["status"] = "cancelled"
+        # दोनों खिलाड़ियों के पैसे वापस करना
+        user_balances[table["p1_id"]] += amt
+        user_balances[table["p2_id"]] += amt
+
+        # कैंसिल होने पर ❌❌ इमोजी लगाना
+        cancel_text = (
+            f"🎲 <b>𝑻𝒂𝒃𝒍𝒆 𝑵𝒐. {t_id}</b>\n\n"
+            f"(1). {p1_link} ❌❌\n\n"
+            f"(2). {p2_link} ❌❌\n\n"
+            f"<b>{int(amt)}</b> ❌ 𝗧𝗔𝗕𝗟𝗘 𝗖𝗔𝗡𝗖𝗘𝗟𝗟𝗘𝗗"
+        )
+        await query.edit_message_text(text=cancel_text, parse_mode="HTML")
+
+# बॉट को 24 घंटे चालू रखने के लिए Main फंक्शन
+def main():
+    app = Application.builder().token(BOT_TOKEN).build()
+    
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("add", add_balance))
+    app.add_handler(CommandHandler("minus", minus_balance))
+    app.add_handler(CommandHandler("list", list_cmd))
