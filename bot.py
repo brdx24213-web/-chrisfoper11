@@ -274,3 +274,4 @@ def handle_btn(c):
     elif act == "w2":
         ob = db["users"][p2].get("balance", 0)
         db["users"][p2]["balance"] = ob + prof
+        db["users"][p1]["balance"] = db["users"][p1].get("balance", 0) - bet
